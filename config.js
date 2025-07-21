@@ -13,7 +13,7 @@ module.exports = {
   
   // PXL API Configuration (for later use)
   PXL_API_KEY: process.env.PXL_API_KEY || 'your_pxl_api_key_here',
-  PXL_API_URL: process.env.PXL_API_URL || 'https://api.pxl.com',
+  PXL_API_URL: process.env.PXL_API_URL || 'https://ident-api-stage.pxl-vision.com/api/v1',
   
   // Email Configuration (for later use)
   MAILGUN_API_KEY: process.env.MAILGUN_API_KEY || 'your_mailgun_api_key_here',

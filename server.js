@@ -5,6 +5,7 @@ require('dotenv').config();
 const mongoose = require('mongoose');
 const axios = require('axios');
 const ProcessMetadata = require('./src/api/v1/model/ProcessMetadata');
+const resumeRoutes = require('./src/api/v1/routes/resume');
 
 // PXL access token cache
 let pxlAccessToken = null;
@@ -258,6 +259,9 @@ app.post('/api/esp-buchungen', async (req, res) => {
     });
   }
 });
+
+// Register the resume generation endpoint
+app.use('/api/v1/resume', resumeRoutes);
 
 // Test endpoint to simulate Webflow form data
 app.post('/test-webflow', (req, res) => {

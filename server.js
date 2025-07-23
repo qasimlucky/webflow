@@ -6,6 +6,15 @@ const mongoose = require('mongoose');
 const axios = require('axios');
 const ProcessMetadata = require('./src/api/v1/model/ProcessMetadata');
 const resumeRoutes = require('./src/api/v1/routes/resume');
+const countries = require("i18n-iso-countries");
+
+function toAlpha3(countryCode) {
+  if (!countryCode) return "DEU"; // default fallback
+  if (countryCode.length === 2) {
+    return countries.alpha2ToAlpha3(countryCode.toUpperCase()) || countryCode.toUpperCase();
+  }
+  return countryCode.toUpperCase();
+}
 
 // PXL access token cache
 let pxlAccessToken = null;
@@ -90,31 +99,7 @@ app.get('/health', (req, res) => {
 app.post('/api/esp-buchungen', async (req, res) => {
   try {
     // Map incoming fields to schema fields
-    const data = {
-      ESP_monatliche_Rate: req.body["ESP-monatliche-Rate"],
-      ESP_Einmalanlage: req.body["ESP-Einmalanlage"],
-      ESP_Kontoinhaber: req.body["ESP-Kontoinhaber"],
-      ESP_IBAN: req.body["ESP-IBAN"],
-      ESP_Kreditinstitut: req.body["ESP-Kreditinstitut"],
-      ESP_Einzugsermaechtigung: req.body["ESP-Einzugserm-chtigung"],
-      ESP_Vertragsbedingungen: req.body["ESP-Vertragsbedingungen"],
-      ESP_Datenschutzbestimmungen: req.body["ESP-Datenschutzbestimmungen"],
-      ESP_Kontakt_Anrede: req.body["ESP-Kontakt-Anrede"],
-      ESP_Kontakt_Firma: req.body["ESP-Kontakt-Firma"],
-      ESP_Kontakt_Vorname: req.body["ESP-Kontakt-Vorname"],
-      ESP_Kontakt_Nachname: req.body["ESP-Kontakt-Nachname"],
-      ESP_Kontakt_Strasse: req.body["ESP-Kontakt-Strasse"],
-      ESP_Kontakt_PLZ: req.body["ESP-Kontakt-PLZ"],
-      ESP_Kontakt_Ort: req.body["ESP-Kontakt-Ort"],
-      ESP_Kontakt_Land: req.body["ESP Kontakt Land"],
-      ESP_Kontakt_Telefon: req.body["ESP-Kontakt-Telefon"],
-      ESP_Kontakt_EMailAdresse: req.body["ESP-Kontakt-E-Mail-Adresse"],
-      ESP_Gemeinschaftssparplan: req.body["ESP-Gemeinschaftssparplan"],
-      ESP_GSP_Vorname: req.body["ESP GSP Vorname"],
-      ESP_GSP_Nachname: req.body["ESP GSP Nachname"],
-      ESP_GSP_Email: req.body["ESP GSP Email"],
-      ESP_Handelt_auf_eigene_Rechnung: req.body["ESP-Handelt-auf-eigene-Rechnung"]
-    };
+    const data = req.body; // Use the request body directly
 
     // 1. Save EspBuchung
     const saved = await EspBuchung.create(data);
@@ -135,17 +120,17 @@ app.post('/api/esp-buchungen', async (req, res) => {
           editable: true
         },
         maidenName: {
-          value: data["ESP-Kontakt-Nachname"] || "Mustermann", // or another field, must be at least 1 char, only letters
+          value: data["ESP-Kontakt-Nachname"] || "Mustermann",
           mandatory: true,
           editable: true
         },
         gender: {
-          value: "f", // or map from your form
+          value: "f",
           mandatory: true,
           editable: true
         },
         birthdate: {
-          value: data["ESP-Geburtsdatum"] || "1994-09-10", // must be YYYY-MM-DD
+          value: data["ESP-Geburtsdatum"] || "1994-09-10",
           mandatory: true,
           editable: true
         },
@@ -166,12 +151,12 @@ app.post('/api/esp-buchungen', async (req, res) => {
             editable: true
           },
           houseNumber: {
-            value: data["ESP-Kontakt-Hausnummer"] || "1", // must be at least 1 char
+            value: data["ESP-Kontakt-Hausnummer"] || "1",
             mandatory: false,
             editable: true
           },
           addressLine2: {
-            value: data["ESP-Kontakt-Adresszusatz"] || "address2", // must be at least 1 char
+            value: data["ESP-Kontakt-Adresszusatz"] || "address2",
             mandatory: false,
             editable: true
           },
@@ -186,13 +171,13 @@ app.post('/api/esp-buchungen', async (req, res) => {
             editable: false
           },
           countryCode: {
-            value: data["ESP Kontakt Land"] || "DEU", // must be ISO 3166-1 alpha-3 (e.g., "DEU" for Germany)
+            value: toAlpha3(data["ESP Kontakt Land"]) || "DEU",
             mandatory: true,
             editable: true
           }
         },
         nationality: {
-          value: data["ESP-Kontakt-Nationalitaet"] || "DEU", // must be ISO 3166-1 alpha-3
+          value: toAlpha3(data["ESP-Kontakt-Nationalitaet"]) || "DEU",
           mandatory: false,
           editable: true
         }

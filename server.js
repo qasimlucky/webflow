@@ -105,6 +105,7 @@ app.post('/api/esp-buchungen', async (req, res) => {
     const saved = await EspBuchung.create(data);
 
     // 2. Prepare payload for PXL
+    const WEBHOOK_URL = process.env.PXL_WEBHOOK_URL || 'https://4c6ca109da6c.ngrok-free.app/api/pxl/webhook';
     const pxlPayload = {
       accountId: 939,
       workflowId: 33,
@@ -181,6 +182,9 @@ app.post('/api/esp-buchungen', async (req, res) => {
           mandatory: false,
           editable: true
         }
+      },
+      webhook: {
+        url: WEBHOOK_URL
       }
     };
 
@@ -247,6 +251,21 @@ app.post('/api/esp-buchungen', async (req, res) => {
 
 // Register the resume generation endpoint
 app.use('/api/v1/resume', resumeRoutes);
+
+// Register the PXL webhook endpoint
+app.post('/api/pxl/webhook', (req, res) => {
+  const payload = req.body;
+  console.log('📩 Received webhook from PXL:', payload);
+
+  // Optional: Verify secret if PXL sends one
+  // if (req.headers['x-pxl-secret'] !== process.env.PXL_WEBHOOK_SECRET) {
+  //   return res.status(401).json({ error: 'Unauthorized' });
+  // }
+
+  // TODO: Save to DB, trigger email, etc.
+
+  res.status(200).json({ message: 'Webhook received' });
+});
 
 // Test endpoint to simulate Webflow form data
 app.post('/test-webflow', (req, res) => {

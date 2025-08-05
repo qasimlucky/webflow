@@ -14,6 +14,7 @@ module.exports = {
   // PXL API Configuration (for later use)
   PXL_API_KEY: process.env.PXL_API_KEY || 'your_pxl_api_key_here',
   PXL_API_URL: process.env.PXL_API_URL || 'https://ident-api-stage.pxl-vision.com/api/v1',
+  PXL_QES_APP_URL: process.env.PXL_QES_APP_URL || 'https://qes-stage.pxl-vision.com/',
   
   // Email Configuration (for later use)
   MAILGUN_API_KEY: process.env.MAILGUN_API_KEY || 'your_mailgun_api_key_here',

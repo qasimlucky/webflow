@@ -5,6 +5,7 @@ require('dotenv').config();
 const mongoose = require('mongoose');
 const axios = require('axios');
 const ProcessMetadata = require('./src/api/v1/model/ProcessMetadata');
+const WebhookData = require('./src/api/v1/model/WebhookData');
 const resumeRoutes = require('./src/api/v1/routes/resume');
 const countries = require("i18n-iso-countries");
 
@@ -253,18 +254,190 @@ app.post('/api/esp-buchungen', async (req, res) => {
 app.use('/api/v1/resume', resumeRoutes);
 
 // Register the PXL webhook endpoint
-app.post('/api/pxl/webhook', (req, res) => {
-  const payload = req.body;
-  console.log('📩 Received webhook from PXL:', payload);
+app.post('/api/pxl/webhook', async (req, res) => {
+  const startTime = Date.now();
+  
+  try {
+    const payload = req.body;
+    const headers = req.headers;
+    
+    console.log('📩 Received webhook from PXL');
+    console.log('🔍 Headers:', JSON.stringify(headers, null, 2));
+    console.log('📦 Payload:', JSON.stringify(payload, null, 2));
+    
+    // Validate payload
+    if (!payload) {
+      console.log('❌ Empty payload received');
+      return res.status(400).json({ 
+        error: 'Empty payload',
+        message: 'No data received in webhook'
+      });
+    }
 
-  // Optional: Verify secret if PXL sends one
-  // if (req.headers['x-pxl-secret'] !== process.env.PXL_WEBHOOK_SECRET) {
-  //   return res.status(401).json({ error: 'Unauthorized' });
-  // }
+    // Extract event type from payload
+    const eventType = payload.event_type || payload.type || payload.event || 'unknown';
+    console.log(`🎯 Processing event type: ${eventType}`);
 
-  // TODO: Save to DB, trigger email, etc.
+    // Save webhook data to database
+    const webhookRecord = await WebhookData.create({
+      event_type: eventType,
+      source: 'PXL',
+      payload: payload,
+      headers: headers,
+      status: 'received',
+      received_at: new Date()
+    });
 
-  res.status(200).json({ message: 'Webhook received' });
+    console.log(`💾 Webhook data saved to database with ID: ${webhookRecord._id}`);
+
+    // Process different types of webhook events
+    let processingResult = null;
+    
+    switch (eventType) {
+      case 'document_created':
+      case 'document_updated':
+        console.log('📄 Document event received:', payload.document_id || payload.id);
+        processingResult = { type: 'document', action: 'processed' };
+        break;
+      
+      case 'payment_success':
+        console.log('💳 Payment success:', payload.payment_id || payload.id);
+        processingResult = { type: 'payment', action: 'processed' };
+        break;
+      
+      case 'user_registered':
+        console.log('👤 User registered:', payload.user_id || payload.id);
+        processingResult = { type: 'user', action: 'processed' };
+        break;
+      
+      case 'transaction_completed':
+        console.log('✅ Transaction completed:', payload.transaction_id || payload.id);
+        processingResult = { type: 'transaction', action: 'processed' };
+        break;
+      
+      default:
+        console.log('📋 Generic webhook event:', eventType);
+        processingResult = { type: 'generic', action: 'processed' };
+    }
+
+    // Update webhook record with processing results
+    const processingTime = Date.now() - startTime;
+    await WebhookData.findByIdAndUpdate(webhookRecord._id, {
+      status: 'processed',
+      processing_time: processingTime,
+      processed_at: new Date(),
+      updated_at: new Date()
+    });
+
+    console.log('✅ Webhook processed successfully');
+    res.status(200).json({ 
+      success: true,
+      message: 'Webhook received and processed',
+      webhook_id: webhookRecord._id,
+      event_type: eventType,
+      processing_time: processingTime,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('❌ Webhook processing error:', error);
+    
+    // Try to save error information to database
+    try {
+      const errorRecord = await WebhookData.create({
+        event_type: req.body?.event_type || 'unknown',
+        source: 'PXL',
+        payload: req.body || {},
+        headers: req.headers,
+        status: 'failed',
+        error: error.message,
+        received_at: new Date()
+      });
+      console.log(`💾 Error record saved with ID: ${errorRecord._id}`);
+    } catch (dbError) {
+      console.error('❌ Failed to save error record:', dbError);
+    }
+    
+    res.status(500).json({ 
+      error: 'Internal server error',
+      message: 'Failed to process webhook',
+      details: error.message
+    });
+  }
+});
+
+// Get webhook data from database
+app.get('/api/pxl/webhook', async (req, res) => {
+  try {
+    const { limit = 50, status, event_type, page = 1 } = req.query;
+    
+    // Build query
+    const query = {};
+    if (status) query.status = status;
+    if (event_type) query.event_type = event_type;
+    
+    // Pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    // Get webhook data
+    const webhooks = await WebhookData.find(query)
+      .sort({ received_at: -1 })
+      .limit(parseInt(limit))
+      .skip(skip);
+    
+    // Get total count
+    const total = await WebhookData.countDocuments(query);
+    
+    console.log(`📊 Retrieved ${webhooks.length} webhook records`);
+    
+    res.status(200).json({
+      success: true,
+      data: webhooks,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / parseInt(limit))
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ Error retrieving webhook data:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve webhook data',
+      error: error.message
+    });
+  }
+});
+
+// Get specific webhook by ID
+app.get('/api/pxl/webhook/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const webhook = await WebhookData.findById(id);
+    
+    if (!webhook) {
+      return res.status(404).json({
+        success: false,
+        message: 'Webhook not found'
+      });
+    }
+    
+    res.status(200).json({
+      success: true,
+      data: webhook
+    });
+    
+  } catch (error) {
+    console.error('❌ Error retrieving webhook:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve webhook',
+      error: error.message
+    });
+  }
 });
 
 // Test endpoint to simulate Webflow form data

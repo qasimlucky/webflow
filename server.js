@@ -105,7 +105,7 @@ app.post('/api/esp-buchungen', async (req, res) => {
     const saved = await EspBuchung.create(data);
 
     // 2. Prepare payload for PXL
-    const WEBHOOK_URL = process.env.PXL_WEBHOOK_URL || 'https://4c6ca109da6c.ngrok-free.app/api/pxl/webhook';
+    const WEBHOOK_URL = process.env.PXL_WEBHOOK_URL || 'https://55fd7f9c875b.ngrok-free.app/api/pxl/webhook';
     const pxlPayload = {
       accountId: 939,
       workflowId: 31,
@@ -183,9 +183,9 @@ app.post('/api/esp-buchungen', async (req, res) => {
           editable: true
         }
       },
-      // webhook: {
-      //   url: WEBHOOK_URL
-      // }
+      webhook: {
+        url: WEBHOOK_URL
+      }
     };
 
     console.log('➡️ PXL Transaction Payload:', JSON.stringify(pxlPayload, null, 2));

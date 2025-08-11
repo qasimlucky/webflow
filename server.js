@@ -199,9 +199,47 @@ app.post('/api/esp-buchungen', async (req, res) => {
     const data = req.body; // Use the request body directly
 
     console.log("data", data);
+    
+    // Map form fields to database schema fields
+    const mappedData = {
+      ESP_monatliche_Rate: data['ESP-monatliche-Rate'],
+      ESP_Einmalanlage: data['ESP-Einmalanlage'],
+      ESP_Kontoinhaber: data['ESP-Kontoinhaber'],
+      ESP_IBAN: data['ESP-IBAN'],
+      ESP_Kreditinstitut: data['ESP-Kreditinstitut'],
+      ESP_Vertragsbedingungen: data['ESP-Vertragsbedingungen'],
+      ESP_Datenschutzbestimmungen: data['ESP-Datenschutzbestimmungen'],
+      ESP_Kontakt_Anrede: data['ESP-Kontakt-Anrede'],
+      ESP_Kontakt_Firma: data['ESP-Kontakt-Firma'],
+      ESP_Kontakt_Vorname: data['ESP-Kontakt-Vorname'],
+      ESP_Kontakt_Nachname: data['ESP-Kontakt-Nachname'],
+      ESP_Kontakt_Strasse: data['ESP-Kontakt-Strasse'],
+      ESP_Kontakt_PLZ: data['ESP-Kontakt-PLZ'],
+      ESP_Kontakt_Ort: data['ESP-Kontakt-Ort'],
+      ESP_Kontakt_Land: data['ESP Kontakt Land'],
+      ESP_Kontakt_Telefon: data['ESP-Kontakt-Telefon'],
+      ESP_Kontakt_EMailAdresse: data['ESP-Kontakt-E-Mail-Adresse'],
+      ESP_Gemeinschaftssparplan: data['ESP-Gemeinschaftssparplan'],
+      ESP_Handelt_auf_eigene_Rechnung: data['ESP-Handelt-auf-eigene-Rechnung']
+    };
+    
+    console.log('🗄️ Mapped data for database:', JSON.stringify(mappedData, null, 2));
+    
     // 1. Save EspBuchung
-    const saved = await EspBuchung.create(data);
-
+    let saved;
+    try {
+      saved = await EspBuchung.create(mappedData);
+      console.log('✅ Data saved to database successfully!');
+      console.log('📊 Saved record ID:', saved._id);
+    } catch (dbError) {
+      console.error('❌ Database save failed:', dbError.message);
+      console.error('❌ Database error details:', dbError);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to save data to database',
+        error: dbError.message
+      });
+    }
 
 
     // 2. Prepare payload for PXL
@@ -300,26 +338,45 @@ app.post('/api/esp-buchungen', async (req, res) => {
     let error;
     const transactionUrl = `${process.env.PXL_API_URL}/transactions/`;
     const transactionHeaders = { Authorization: `Bearer ${accessToken}` };
+    
+    console.log('🚀 Attempting PXL API call...');
+    console.log('🔗 PXL API URL:', transactionUrl);
+    console.log('🔑 Using access token:', accessToken ? '✅ Present' : '❌ Missing');
+    
     while (attempts < 3) {
       try {
         // Log the full request
+        console.log(`🔄 PXL API Attempt ${attempts + 1}/3`);
         console.log('🔍 Axios Transaction Request:', {
           method: 'POST',
           url: transactionUrl,
           headers: transactionHeaders,
           data: pxlPayload
         });
+        
         pxlResponse = await axios.post(
           transactionUrl,
           pxlPayload,
           { headers: transactionHeaders }
         );
+        
+        console.log('✅ PXL API call successful!');
+        console.log('📊 PXL Response:', JSON.stringify(pxlResponse.data, null, 2));
         break; // Success!
       } catch (err) {
         attempts++;
         error = err;
-        console.error('❌ Axios Transaction Error:', err.response?.data || err.message);
-        await new Promise(r => setTimeout(r, 500 * Math.pow(2, attempts)));
+        console.error(`❌ PXL API Attempt ${attempts} failed:`, err.response?.data || err.message);
+        if (err.response) {
+          console.error('📊 PXL Error Response:', JSON.stringify(err.response.data, null, 2));
+          console.error('🔢 PXL Error Status:', err.response.status);
+        }
+        
+        if (attempts < 3) {
+          const delay = 500 * Math.pow(2, attempts);
+          console.log(`⏳ Waiting ${delay}ms before retry...`);
+          await new Promise(r => setTimeout(r, delay));
+        }
       }
     }
 

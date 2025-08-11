@@ -21,7 +21,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"ESP-Kontakt-Vorname\": \"Max\",\n  \"ESP-Kontakt-Nachname\": \"Mustermann\",\n  \"ESP-Geburtsdatum\": \"1994-09-10\",\n  \"ESP-Kontakt-E-Mail-Adresse\": \"max.mustermann@example.com\",\n  \"ESP-Kontakt-Telefon\": \"+49123456789\",\n  \"ESP-Kontakt-Strasse\": \"Musterstrasse\",\n  \"ESP-Kontakt-Hausnummer\": \"123\",\n  \"ESP-Kontakt-Adresszusatz\": \"Apartment 4B\",\n  \"ESP-Kontakt-PLZ\": \"12345\",\n  \"ESP-Kontakt-Ort\": \"Musterstadt\",\n  \"ESP Kontakt Land\": \"DE\",\n  \"ESP-Kontakt-Nationalitaet\": \"DE\"\n}"
+          "raw": "{\n  \"ESP-monatliche-Rate\": \"100\",\n  \"ESP-Einmalanlage\": \"5000\",\n  \"ESP-Kontoinhaber\": \"KontoinHaBer\",\n  \"ESP-IBAN\": \"DE260000000000000\",\n  \"ESP-Kreditinstitut\": \"wdsadfsfsd\",\n  \"ESP-Vertragsbedingungen\": \"on\",\n  \"ESP-Datenschutzbestimmungen\": \"on\",\n  \"ESP-Kontakt-Anrede\": \"Herr\",\n  \"ESP-Kontakt-Firma\": \"FIRMA\",\n  \"ESP-Kontakt-Vorname\": \"Qasim\",\n  \"ESP-Kontakt-Nachname\": \"Ali\",\n  \"ESP-Kontakt-Strasse\": \"21 Baker Street, London, W1U 3BW, United Kingdom\",\n  \"ESP-Kontakt-PLZ\": \"32131\",\n  \"ESP-Kontakt-Ort\": \"London\",\n  \"ESP Kontakt Land\": \"AO\",\n  \"ESP-Kontakt-Telefon\": \"03497611920\",\n  \"ESP-Kontakt-E-Mail-Adresse\": \"qasim9754@gmail.com\",\n  \"ESP-Gemeinschaftssparplan\": \"Nein\",\n  \"ESP-Handelt-auf-eigene-Rechnung\": \"on\"\n}"
         },
         "url": {
           "raw": "{{baseUrl}}/api/esp-buchungen",

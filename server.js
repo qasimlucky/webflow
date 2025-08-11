@@ -383,19 +383,33 @@ app.post('/api/esp-buchungen', async (req, res) => {
     // 5. Save process metadata
     const meta = await ProcessMetadata.create({
       espBuchungId: saved._id,
-      transactionId: pxlResponse?.data?.transactionId,
-      transactionCode: pxlResponse?.data?.transactionCode,
+      transactionId: pxlResponse?.data?.data?.id,
+      transactionCode: pxlResponse?.data?.data?.transactionCode,
       status: pxlResponse ? 'initiated' : 'failed',
       error: pxlResponse ? undefined : error?.message
     });
 
-    consoe.log()
+    console.log('💾 Process metadata saved:', {
+      espBuchungId: saved._id,
+      transactionId: pxlResponse?.data?.data?.id,
+      transactionCode: pxlResponse?.data?.data?.transactionCode,
+      status: pxlResponse ? 'initiated' : 'failed'
+    });
 
     res.status(200).json({
       success: true,
       message: 'Form submission and PXL transaction processed',
       id: saved._id,
-      pxl: pxlResponse?.data,
+      pxl: {
+        transactionId: pxlResponse?.data?.data?.id,
+        transactionCode: pxlResponse?.data?.data?.transactionCode,
+        status: pxlResponse?.data?.data?.status,
+        transactionUrls: pxlResponse?.data?.data?.transactionUrls,
+        accountId: pxlResponse?.data?.data?.accountId,
+        workflowId: pxlResponse?.data?.data?.workflowId,
+        createdAt: pxlResponse?.data?.data?.createdAt,
+        expiresAt: pxlResponse?.data?.data?.expiresAt
+      },
       processMeta: meta
     });
   } catch (error) {

@@ -1,16 +1,16 @@
 const nodemailer = require('nodemailer');
 
-// Email configuration using the provided details
+// Email configuration using environment variables
 const emailConfig = {
-    email: 'abschluss@edelmetall-spar-plan.com',
-    password: '#ABSch1987#',
-    imapHost: 'imap.ionos.de',
-    imapPort: 993,
-    imapSecure: true, // SSL enabled
-    smtpHost: 'smtp.ionos.de',
-    smtpPort: 587,
-    smtpSecure: false, // TLS for port 587
-    smtpRequireAuth: true
+    email: process.env.EMAIL_USER,
+    password: process.env.EMAIL_PASSWORD,
+    imapHost: process.env.EMAIL_IMAP_HOST,
+    imapPort: parseInt(process.env.EMAIL_IMAP_PORT),
+    imapSecure: process.env.EMAIL_IMAP_SECURE !== 'false',
+    smtpHost: process.env.EMAIL_SMTP_HOST,
+    smtpPort: parseInt(process.env.EMAIL_SMTP_PORT),
+    smtpSecure: process.env.EMAIL_SMTP_SECURE === 'true',
+    smtpRequireAuth: process.env.EMAIL_SMTP_REQUIRE_AUTH !== 'false'
 };
 
 // Create transporter for sending emails

@@ -4,6 +4,7 @@ const helmet = require('helmet');
 require('dotenv').config();
 const mongoose = require('mongoose');
 const axios = require('axios');
+const nodemailer = require('nodemailer');
 const ProcessMetadata = require('./src/api/v1/model/ProcessMetadata');
 const WebhookData = require('./src/api/v1/model/WebhookData');
 const resumeRoutes = require('./src/api/v1/routes/resume');
@@ -52,6 +53,101 @@ async function getPxlAccessToken() {
   } catch (err) {
     console.error('❌ Failed to get PXL access token:', err.response?.data || err.message);
     throw err;
+  }
+}
+
+// Email configuration using environment variables
+const emailConfig = {
+  email: process.env.EMAIL_USER,
+  password: process.env.EMAIL_PASSWORD,
+  smtpHost: process.env.EMAIL_SMTP_HOST,
+  smtpPort: parseInt(process.env.EMAIL_SMTP_PORT),
+  smtpSecure: process.env.EMAIL_SMTP_SECURE === 'true',
+  smtpRequireAuth: process.env.EMAIL_SMTP_REQUIRE_AUTH !== 'false'
+};
+
+// Create email transporter
+const emailTransporter = nodemailer.createTransport({
+  host: emailConfig.smtpHost,
+  port: emailConfig.smtpPort,
+  secure: emailConfig.smtpSecure,
+  auth: {
+    user: emailConfig.email,
+    pass: emailConfig.password
+  },
+  tls: {
+    rejectUnauthorized: false
+  }
+});
+
+// Function to get base64 data from PXL API and convert to PDF
+async function getPxlDataAndSendEmail(transactionId, status) {
+  try {
+    console.log(`📥 Getting data for transaction: ${transactionId}`);
+    
+    // Get PXL access token
+    const accessToken = await getPxlAccessToken();
+    
+    // Call PXL API to get the zip package (base64 data)
+    const pxlApiUrl = `${process.env.PXL_API_URL}/transactions/${transactionId}/files?unencryptedData=true`;
+    const response = await axios.get(pxlApiUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    
+    console.log('✅ Received data from PXL API');
+    
+    // Log the full response structure to understand the data format
+    console.log('🔍 PXL API Response structure:', JSON.stringify(response.data, null, 2));
+    
+    // Extract base64 data from response
+    const base64Data = response.data.data || response.data.content || response.data.file;
+    
+    if (!base64Data) {
+      throw new Error('No base64 data received from PXL API');
+    }
+    
+    // Convert base64 to PDF (for now, we'll create a simple PDF with the data)
+    // In a real scenario, you might want to use a library like pdfkit or puppeteer
+    const pdfBuffer = Buffer.from(base64Data, 'base64');
+    
+    // Send email with PDF attachment
+    const mailOptions = {
+      from: emailConfig.email,
+      to: 'qasim9754@gmail.com',
+      subject: `PXL Transaction ${transactionId} - ${status}`,
+      text: `PXL Transaction ${transactionId} has reached status: ${status}\n\nPlease find the attached PDF with the transaction data.`,
+      html: `
+        <h2>PXL Transaction Update</h2>
+        <p><strong>Transaction ID:</strong> ${transactionId}</p>
+        <p><strong>Status:</strong> ${status}</p>
+        <p><strong>Timestamp:</strong> ${new Date().toISOString()}</p>
+        <p>Please find the attached PDF with the transaction data.</p>
+      `,
+      attachments: [
+        {
+          filename: `PXL_Transaction_${transactionId}_${status}.pdf`,
+          content: pdfBuffer,
+          contentType: 'application/pdf'
+        }
+      ]
+    };
+    
+    console.log('📧 Sending email with PDF attachment...');
+    const emailResult = await emailTransporter.sendMail(mailOptions);
+    
+    console.log('✅ Email sent successfully!');
+    console.log('Message ID:', emailResult.messageId);
+    
+    return {
+      success: true,
+      emailId: emailResult.messageId,
+      transactionId: transactionId,
+      status: status
+    };
+    
+  } catch (error) {
+    console.error('❌ Error in getPxlDataAndSendEmail:', error.message);
+    throw error;
   }
 }
 
@@ -293,6 +389,10 @@ app.post('/api/pxl/webhook', async (req, res) => {
     // Process different types of webhook events
     let processingResult = null;
     
+    // Extract transaction ID from payload
+    const transactionId = payload.transaction_id || payload.transactionId || payload.id;
+    const status = payload.status || payload.event_type;
+    
     switch (eventType) {
       case 'document_created':
       case 'document_updated':
@@ -311,8 +411,44 @@ app.post('/api/pxl/webhook', async (req, res) => {
         break;
       
       case 'transaction_completed':
-        console.log('✅ Transaction completed:', payload.transaction_id || payload.id);
+        console.log('✅ Transaction completed:', transactionId);
         processingResult = { type: 'transaction', action: 'processed' };
+        break;
+      
+      // Handle PXL specific statuses
+      case 'ACTIVE':
+      case 'STARTED':
+      case 'TC_ACCEPTED':
+      case 'COMPATIBILITY_PASSED':
+      case 'DOCUMENT_SCAN_COMPLETED':
+      case 'DOCUMENT_RECORDING_COMPLETED':
+      case 'SELFIE_COMPLETED':
+      case 'IDENTIFICATION_COMPLETED':
+      case 'PENDING_MANUAL_REVIEW':
+        console.log(`🔄 PXL Status Update: ${eventType} for transaction: ${transactionId}`);
+        
+        // For specific statuses, get data and send email
+        if (['DOCUMENT_SCAN_COMPLETED', 'DOCUMENT_RECORDING_COMPLETED', 'SELFIE_COMPLETED', 'IDENTIFICATION_COMPLETED', 'PENDING_MANUAL_REVIEW'].includes(eventType)) {
+          try {
+            console.log(`📧 Triggering PDF generation and email for status: ${eventType}`);
+            const emailResult = await getPxlDataAndSendEmail(transactionId, eventType);
+            processingResult = { 
+              type: 'pxl_status', 
+              action: 'processed_with_email',
+              emailResult: emailResult
+            };
+            console.log('✅ PDF generated and email sent successfully');
+          } catch (emailError) {
+            console.error('❌ Failed to send email:', emailError.message);
+            processingResult = { 
+              type: 'pxl_status', 
+              action: 'processed_without_email',
+              error: emailError.message
+            };
+          }
+        } else {
+          processingResult = { type: 'pxl_status', action: 'processed' };
+        }
         break;
       
       default:
@@ -336,6 +472,7 @@ app.post('/api/pxl/webhook', async (req, res) => {
       webhook_id: webhookRecord._id,
       event_type: eventType,
       processing_time: processingTime,
+      processing_result: processingResult,
       timestamp: new Date().toISOString()
     });
 

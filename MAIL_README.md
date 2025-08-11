@@ -4,8 +4,6 @@ This application tests your email server configuration using the provided IONOS 
 
 ## Configuration Details
 
-- **Email**: abschluss@edelmetall-spar-plan.com
-- **Password**: #ABSch1987#
 - **IMAP Server**: imap.ionos.de (Port 993, SSL enabled)
 - **SMTP Server**: smtp.ionos.de (Port 587, TLS enabled)
 - **Authentication**: Required
@@ -44,8 +42,7 @@ If successful, you should see:
 🚀 Mail Server Configuration Test
 ================================
 Testing email configuration...
-SMTP Host: smtp.ionos.de
-SMTP Port: 587
+
 Email: abschluss@edelmetall-spar-plan.com
 ✅ SMTP connection verified successfully!
 Sending test email...

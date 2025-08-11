@@ -84,32 +84,32 @@ const emailTransporter = nodemailer.createTransport({
 async function getPxlDataAndSendEmail(transactionId, status) {
   try {
     console.log(`📥 Getting data for transaction: ${transactionId}`);
-    
+
     // Get PXL access token
     const accessToken = await getPxlAccessToken();
-    
+
     // Call PXL API to get the zip package (base64 data)
     const pxlApiUrl = `${process.env.PXL_API_URL}/transactions/${transactionId}/files?unencryptedData=true`;
     const response = await axios.get(pxlApiUrl, {
       headers: { Authorization: `Bearer ${accessToken}` }
     });
-    
+
     console.log('✅ Received data from PXL API');
-    
+
     // Log the full response structure to understand the data format
     console.log('🔍 PXL API Response structure:', JSON.stringify(response.data, null, 2));
-    
+
     // Extract base64 data from response
     const base64Data = response.data.data || response.data.content || response.data.file;
-    
+
     if (!base64Data) {
       throw new Error('No base64 data received from PXL API');
     }
-    
+
     // Convert base64 to PDF (for now, we'll create a simple PDF with the data)
     // In a real scenario, you might want to use a library like pdfkit or puppeteer
     const pdfBuffer = Buffer.from(base64Data, 'base64');
-    
+
     // Send email with PDF attachment
     const mailOptions = {
       from: emailConfig.email,
@@ -131,20 +131,20 @@ async function getPxlDataAndSendEmail(transactionId, status) {
         }
       ]
     };
-    
+
     console.log('📧 Sending email with PDF attachment...');
     const emailResult = await emailTransporter.sendMail(mailOptions);
-    
+
     console.log('✅ Email sent successfully!');
     console.log('Message ID:', emailResult.messageId);
-    
+
     return {
       success: true,
       emailId: emailResult.messageId,
       transactionId: transactionId,
       status: status
     };
-    
+
   } catch (error) {
     console.error('❌ Error in getPxlDataAndSendEmail:', error.message);
     throw error;
@@ -157,11 +157,11 @@ mongoose.connect(dbURI, {
   useNewUrlParser: true,
   useUnifiedTopology: true
 })
-.then(() => console.log('✅ MongoDB connected!'))
-.catch(err => {
-  console.error('❌ MongoDB connection error:', err);
-  process.exit(1);
-});
+  .then(() => console.log('✅ MongoDB connected!'))
+  .catch(err => {
+    console.error('❌ MongoDB connection error:', err);
+    process.exit(1);
+  });
 const EspBuchung = require('./src/api/v1/model/EspBuchung');
 
 const app = express();
@@ -198,8 +198,11 @@ app.post('/api/esp-buchungen', async (req, res) => {
     // Map incoming fields to schema fields
     const data = req.body; // Use the request body directly
 
+    console.log("data", data);
     // 1. Save EspBuchung
     const saved = await EspBuchung.create(data);
+
+
 
     // 2. Prepare payload for PXL
     const WEBHOOK_URL = process.env.PXL_WEBHOOK_URL || 'https://55fd7f9c875b.ngrok-free.app/api/pxl/webhook';
@@ -352,19 +355,19 @@ app.use('/api/v1/resume', resumeRoutes);
 // Register the PXL webhook endpoint
 app.post('/api/pxl/webhook', async (req, res) => {
   const startTime = Date.now();
-  
+
   try {
     const payload = req.body;
     const headers = req.headers;
-    
+
     console.log('📩 Received webhook from PXL');
     console.log('🔍 Headers:', JSON.stringify(headers, null, 2));
     console.log('📦 Payload:', JSON.stringify(payload, null, 2));
-    
+
     // Validate payload
     if (!payload) {
       console.log('❌ Empty payload received');
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: 'Empty payload',
         message: 'No data received in webhook'
       });
@@ -388,33 +391,33 @@ app.post('/api/pxl/webhook', async (req, res) => {
 
     // Process different types of webhook events
     let processingResult = null;
-    
+
     // Extract transaction ID from payload
     const transactionId = payload.transaction_id || payload.transactionId || payload.id;
     const status = payload.status || payload.event_type;
-    
+
     switch (eventType) {
       case 'document_created':
       case 'document_updated':
         console.log('📄 Document event received:', payload.document_id || payload.id);
         processingResult = { type: 'document', action: 'processed' };
         break;
-      
+
       case 'payment_success':
         console.log('💳 Payment success:', payload.payment_id || payload.id);
         processingResult = { type: 'payment', action: 'processed' };
         break;
-      
+
       case 'user_registered':
         console.log('👤 User registered:', payload.user_id || payload.id);
         processingResult = { type: 'user', action: 'processed' };
         break;
-      
+
       case 'transaction_completed':
         console.log('✅ Transaction completed:', transactionId);
         processingResult = { type: 'transaction', action: 'processed' };
         break;
-      
+
       // Handle PXL specific statuses
       case 'ACTIVE':
       case 'STARTED':
@@ -426,22 +429,22 @@ app.post('/api/pxl/webhook', async (req, res) => {
       case 'IDENTIFICATION_COMPLETED':
       case 'PENDING_MANUAL_REVIEW':
         console.log(`🔄 PXL Status Update: ${eventType} for transaction: ${transactionId}`);
-        
+
         // For specific statuses, get data and send email
         if (['DOCUMENT_SCAN_COMPLETED', 'DOCUMENT_RECORDING_COMPLETED', 'SELFIE_COMPLETED', 'IDENTIFICATION_COMPLETED', 'PENDING_MANUAL_REVIEW'].includes(eventType)) {
           try {
             console.log(`📧 Triggering PDF generation and email for status: ${eventType}`);
             const emailResult = await getPxlDataAndSendEmail(transactionId, eventType);
-            processingResult = { 
-              type: 'pxl_status', 
+            processingResult = {
+              type: 'pxl_status',
               action: 'processed_with_email',
               emailResult: emailResult
             };
             console.log('✅ PDF generated and email sent successfully');
           } catch (emailError) {
             console.error('❌ Failed to send email:', emailError.message);
-            processingResult = { 
-              type: 'pxl_status', 
+            processingResult = {
+              type: 'pxl_status',
               action: 'processed_without_email',
               error: emailError.message
             };
@@ -450,7 +453,7 @@ app.post('/api/pxl/webhook', async (req, res) => {
           processingResult = { type: 'pxl_status', action: 'processed' };
         }
         break;
-      
+
       default:
         console.log('📋 Generic webhook event:', eventType);
         processingResult = { type: 'generic', action: 'processed' };
@@ -466,7 +469,7 @@ app.post('/api/pxl/webhook', async (req, res) => {
     });
 
     console.log('✅ Webhook processed successfully');
-    res.status(200).json({ 
+    res.status(200).json({
       success: true,
       message: 'Webhook received and processed',
       webhook_id: webhookRecord._id,
@@ -478,7 +481,7 @@ app.post('/api/pxl/webhook', async (req, res) => {
 
   } catch (error) {
     console.error('❌ Webhook processing error:', error);
-    
+
     // Try to save error information to database
     try {
       const errorRecord = await WebhookData.create({
@@ -494,8 +497,8 @@ app.post('/api/pxl/webhook', async (req, res) => {
     } catch (dbError) {
       console.error('❌ Failed to save error record:', dbError);
     }
-    
-    res.status(500).json({ 
+
+    res.status(500).json({
       error: 'Internal server error',
       message: 'Failed to process webhook',
       details: error.message
@@ -507,26 +510,26 @@ app.post('/api/pxl/webhook', async (req, res) => {
 app.get('/api/pxl/webhook', async (req, res) => {
   try {
     const { limit = 50, status, event_type, page = 1 } = req.query;
-    
+
     // Build query
     const query = {};
     if (status) query.status = status;
     if (event_type) query.event_type = event_type;
-    
+
     // Pagination
     const skip = (parseInt(page) - 1) * parseInt(limit);
-    
+
     // Get webhook data
     const webhooks = await WebhookData.find(query)
       .sort({ received_at: -1 })
       .limit(parseInt(limit))
       .skip(skip);
-    
+
     // Get total count
     const total = await WebhookData.countDocuments(query);
-    
+
     console.log(`📊 Retrieved ${webhooks.length} webhook records`);
-    
+
     res.status(200).json({
       success: true,
       data: webhooks,
@@ -537,7 +540,7 @@ app.get('/api/pxl/webhook', async (req, res) => {
         pages: Math.ceil(total / parseInt(limit))
       }
     });
-    
+
   } catch (error) {
     console.error('❌ Error retrieving webhook data:', error);
     res.status(500).json({
@@ -552,21 +555,21 @@ app.get('/api/pxl/webhook', async (req, res) => {
 app.get('/api/pxl/webhook/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     const webhook = await WebhookData.findById(id);
-    
+
     if (!webhook) {
       return res.status(404).json({
         success: false,
         message: 'Webhook not found'
       });
     }
-    
+
     res.status(200).json({
       success: true,
       data: webhook
     });
-    
+
   } catch (error) {
     console.error('❌ Error retrieving webhook:', error);
     res.status(500).json({
@@ -587,7 +590,7 @@ app.post('/test-webflow', (req, res) => {
   };
 
   console.log('🧪 Test data:', testData);
-  
+
   res.status(200).json({
     success: true,
     message: 'Test endpoint working',

@@ -1,0 +1,131 @@
+{
+  "info": {
+    "name": "ESP Buchungen Backend API",
+    "description": "Collection for testing ESP Buchungen Backend endpoints",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "ESP Buchungen Form Submission",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "User-Agent",
+            "value": "PostmanRuntime/7.32.3"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"ESP-Kontakt-Vorname\": \"Max\",\n  \"ESP-Kontakt-Nachname\": \"Mustermann\",\n  \"ESP-Geburtsdatum\": \"1994-09-10\",\n  \"ESP-Kontakt-E-Mail-Adresse\": \"max.mustermann@example.com\",\n  \"ESP-Kontakt-Telefon\": \"+49123456789\",\n  \"ESP-Kontakt-Strasse\": \"Musterstrasse\",\n  \"ESP-Kontakt-Hausnummer\": \"123\",\n  \"ESP-Kontakt-Adresszusatz\": \"Apartment 4B\",\n  \"ESP-Kontakt-PLZ\": \"12345\",\n  \"ESP-Kontakt-Ort\": \"Musterstadt\",\n  \"ESP Kontakt Land\": \"DE\",\n  \"ESP-Kontakt-Nationalitaet\": \"DE\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/esp-buchungen",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "esp-buchungen"]
+        },
+        "description": "Submit ESP Buchungen form data to create a new transaction"
+      },
+      "response": []
+    },
+    {
+      "name": "Health Check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health",
+          "host": ["{{baseUrl}}"],
+          "path": ["health"]
+        },
+        "description": "Check if the server is running and healthy"
+      },
+      "response": []
+    },
+    {
+      "name": "Test Webflow Endpoint",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"John Doe\",\n  \"email\": \"john@example.com\",\n  \"phone\": \"+1234567890\",\n  \"message\": \"This is a test submission from Webflow\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/test-webflow",
+          "host": ["{{baseUrl}}"],
+          "path": ["test-webflow"]
+        },
+        "description": "Test the Webflow endpoint with sample data"
+      },
+      "response": []
+    },
+    {
+      "name": "PXL Webhook Test",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "User-Agent",
+            "value": "PXL-Webhook-Test"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"event_type\": \"IDENTIFICATION_COMPLETED\",\n  \"transaction_id\": \"722899766\",\n  \"status\": \"IDENTIFICATION_COMPLETED\",\n  \"timestamp\": \"2025-08-11T00:00:00.000Z\",\n  \"transaction_data\": {\n    \"id\": \"722899766\",\n    \"status\": \"IDENTIFICATION_COMPLETED\",\n    \"created_at\": \"2025-08-11T00:00:00.000Z\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/pxl/webhook",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "pxl", "webhook"]
+        },
+        "description": "Test PXL webhook with real transaction ID"
+      },
+      "response": []
+    },
+    {
+      "name": "Get Webhook Data",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/pxl/webhook?limit=10&page=1",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "pxl", "webhook"],
+          "query": [
+            {
+              "key": "limit",
+              "value": "10"
+            },
+            {
+              "key": "page",
+              "value": "1"
+            }
+          ]
+        },
+        "description": "Retrieve webhook data from database"
+      },
+      "response": []
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5700",
+      "type": "string"
+    }
+  ]
+} 

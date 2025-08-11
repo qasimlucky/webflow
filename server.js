@@ -389,6 +389,8 @@ app.post('/api/esp-buchungen', async (req, res) => {
       error: pxlResponse ? undefined : error?.message
     });
 
+    consoe.log()
+
     res.status(200).json({
       success: true,
       message: 'Form submission and PXL transaction processed',

@@ -400,6 +400,7 @@ app.post('/api/esp-buchungen', async (req, res) => {
       success: true,
       message: 'Form submission and PXL transaction processed',
       id: saved._id,
+      pxl: pxlResponse?.data,
       pxl: {
         transactionId: pxlResponse?.data?.data?.id,
         transactionCode: pxlResponse?.data?.data?.transactionCode,

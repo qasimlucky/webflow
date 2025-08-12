@@ -85,7 +85,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"event_type\": \"IDENTIFICATION_COMPLETED\",\n  \"transaction_id\": \"722899766\",\n  \"status\": \"IDENTIFICATION_COMPLETED\",\n  \"timestamp\": \"2025-08-11T00:00:00.000Z\",\n  \"transaction_data\": {\n    \"id\": \"722899766\",\n    \"status\": \"IDENTIFICATION_COMPLETED\",\n    \"created_at\": \"2025-08-11T00:00:00.000Z\"\n  }\n}"
+          "raw": "{\n  \"event_type\": \"IDENTIFICATION_COMPLETED\",\n  \"transaction_id\": \"859869047\",\n  \"status\": \"IDENTIFICATION_COMPLETED\",\n  \"timestamp\": \"2025-08-11T00:00:00.000Z\",\n  \"transaction_data\": {\n    \"id\": \"859869047\",\n    \"status\": \"IDENTIFICATION_COMPLETED\",\n    \"created_at\": \"2025-08-11T00:00:00.000Z\"\n  }\n}"
         },
         "url": {
           "raw": "{{baseUrl}}/api/pxl/webhook",

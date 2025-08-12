@@ -66,6 +66,34 @@ const emailConfig = {
   smtpRequireAuth: process.env.EMAIL_SMTP_REQUIRE_AUTH !== 'false'
 };
 
+// Debug email configuration
+console.log('📧 Email Configuration Debug:');
+console.log('EMAIL_USER:', process.env.EMAIL_USER ? '✅ Set' : '❌ Missing');
+console.log('EMAIL_PASSWORD:', process.env.EMAIL_PASSWORD ? '✅ Set' : '❌ Missing');
+console.log('EMAIL_SMTP_HOST:', process.env.EMAIL_SMTP_HOST ? '✅ Set' : '❌ Missing');
+console.log('EMAIL_SMTP_PORT:', process.env.EMAIL_SMTP_PORT ? '✅ Set' : '❌ Missing');
+console.log('EMAIL_SMTP_SECURE:', process.env.EMAIL_SMTP_SECURE);
+console.log('EMAIL_SMTP_REQUIRE_AUTH:', process.env.EMAIL_SMTP_REQUIRE_AUTH);
+
+// Show actual values (be careful with password)
+console.log('🔍 Actual Values:');
+console.log('EMAIL_USER value:', process.env.EMAIL_USER);
+console.log('EMAIL_PASSWORD value:', process.env.EMAIL_PASSWORD ? '***SET***' : 'NOT SET');
+console.log('EMAIL_SMTP_HOST value:', process.env.EMAIL_SMTP_HOST);
+console.log('EMAIL_SMTP_PORT value:', process.env.EMAIL_SMTP_PORT);
+console.log('EMAIL_SMTP_SECURE value:', process.env.EMAIL_SMTP_SECURE);
+console.log('EMAIL_SMTP_REQUIRE_AUTH value:', process.env.EMAIL_SMTP_REQUIRE_AUTH);
+
+// Show final emailConfig object
+console.log('📧 Final emailConfig object:', {
+  email: emailConfig.email,
+  password: emailConfig.password ? '***SET***' : 'NOT SET',
+  smtpHost: emailConfig.smtpHost,
+  smtpPort: emailConfig.smtpPort,
+  smtpSecure: emailConfig.smtpSecure,
+  smtpRequireAuth: emailConfig.smtpRequireAuth
+});
+
 // Create email transporter
 const emailTransporter = nodemailer.createTransport({
   host: emailConfig.smtpHost,
@@ -151,6 +179,92 @@ async function getPxlDataAndSendEmail(transactionId, status) {
   }
 }
 
+// Function to send welcome email to user when identification is completed
+async function sendWelcomeEmailToUser(transactionId, status) {
+  try {
+    console.log(`📧 Sending welcome email for transaction: ${transactionId}`);
+    
+    // 1. Find ProcessMetadata using transactionCode (transactionId from webhook)
+    const processMeta = await ProcessMetadata.findOne({ transactionCode: transactionId });
+    
+    if (!processMeta) {
+      throw new Error(`No ProcessMetadata found for transactionCode: ${transactionId}`);
+    }
+    
+    console.log('✅ Found ProcessMetadata:', processMeta._id);
+    
+    // 2. Get EspBuchung data using espBuchungId
+    const espBuchung = await EspBuchung.findById(processMeta.espBuchungId);
+    
+    if (!espBuchung) {
+      throw new Error(`No EspBuchung found for ID: ${processMeta.espBuchungId}`);
+    }
+    
+    console.log('✅ Found EspBuchung:', espBuchung._id);
+    
+    // 3. Extract user email
+    const userEmail = espBuchung.ESP_Kontakt_EMailAdresse;
+    
+    if (!userEmail) {
+      throw new Error('No email address found in EspBuchung data');
+    }
+    
+    console.log('📧 User email:', userEmail);
+    
+    // 4. Send welcome email
+    const mailOptions = {
+      from: emailConfig.email,
+      to: userEmail,
+      subject: 'Willkommen bei der L\'Or AG - Ihr Antrag wurde erhalten',
+      text: `Guten Tag und herzlich willkommen bei der L'Or AG.
+
+Wir haben Ihren Antrag erhalten und werden diesen nun bearbeiten. In den nächsten Tagen werden Sie eine E-Mail mit der Bestätigung und allen weiteren Einzelheiten erhalten.
+
+Wir freuen uns sehr, Sie bei uns Begrüßen zu dürfen.
+
+Mit freundlichen Grüßen
+Ihr L'Or AG Team`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2 style="color: #2c3e50;">Willkommen bei der L'Or AG</h2>
+          
+          <p>Guten Tag und herzlich willkommen bei der L'Or AG.</p>
+          
+          <p>Wir haben Ihren Antrag erhalten und werden diesen nun bearbeiten. In den nächsten Tagen werden Sie eine E-Mail mit der Bestätigung und allen weiteren Einzelheiten erhalten.</p>
+          
+          <p>Wir freuen uns sehr, Sie bei uns Begrüßen zu dürfen.</p>
+          
+          <hr style="border: 1px solid #ecf0f1; margin: 20px 0;">
+          
+          <p style="color: #7f8c8d; font-size: 14px;">
+            <strong>Mit freundlichen Grüßen</strong><br>
+            Ihr L'Or AG Team
+          </p>
+        </div>
+      `
+    };
+    
+    console.log('📧 Sending welcome email...');
+    const emailResult = await emailTransporter.sendMail(mailOptions);
+    
+    console.log('✅ Welcome email sent successfully!');
+    console.log('Message ID:', emailResult.messageId);
+    
+    return {
+      success: true,
+      emailId: emailResult.messageId,
+      userEmail: userEmail,
+      transactionId: transactionId,
+      status: status,
+      espBuchungId: processMeta.espBuchungId
+    };
+    
+  } catch (error) {
+    console.error('❌ Error in sendWelcomeEmailToUser:', error.message);
+    throw error;
+  }
+}
+
 const dbURI = process.env.DEV_DATABASE || 'mongodb://localhost:27017/espbuchungen';
 
 mongoose.connect(dbURI, {
@@ -199,7 +313,7 @@ app.post('/api/esp-buchungen', async (req, res) => {
     const data = req.body; // Use the request body directly
 
     console.log("data", data);
-    
+
     // Map form fields to database schema fields
     const mappedData = {
       ESP_monatliche_Rate: data['ESP-monatliche-Rate'],
@@ -222,9 +336,9 @@ app.post('/api/esp-buchungen', async (req, res) => {
       ESP_Gemeinschaftssparplan: data['ESP-Gemeinschaftssparplan'],
       ESP_Handelt_auf_eigene_Rechnung: data['ESP-Handelt-auf-eigene-Rechnung']
     };
-    
+
     console.log('🗄️ Mapped data for database:', JSON.stringify(mappedData, null, 2));
-    
+
     // 1. Save EspBuchung
     let saved;
     try {
@@ -338,11 +452,11 @@ app.post('/api/esp-buchungen', async (req, res) => {
     let error;
     const transactionUrl = `${process.env.PXL_API_URL}/transactions/`;
     const transactionHeaders = { Authorization: `Bearer ${accessToken}` };
-    
+
     console.log('🚀 Attempting PXL API call...');
     console.log('🔗 PXL API URL:', transactionUrl);
     console.log('🔑 Using access token:', accessToken ? '✅ Present' : '❌ Missing');
-    
+
     while (attempts < 3) {
       try {
         // Log the full request
@@ -353,13 +467,13 @@ app.post('/api/esp-buchungen', async (req, res) => {
           headers: transactionHeaders,
           data: pxlPayload
         });
-        
+
         pxlResponse = await axios.post(
           transactionUrl,
           pxlPayload,
           { headers: transactionHeaders }
         );
-        
+
         console.log('✅ PXL API call successful!');
         console.log('📊 PXL Response:', JSON.stringify(pxlResponse.data, null, 2));
         break; // Success!
@@ -371,7 +485,7 @@ app.post('/api/esp-buchungen', async (req, res) => {
           console.error('📊 PXL Error Response:', JSON.stringify(err.response.data, null, 2));
           console.error('🔢 PXL Error Status:', err.response.status);
         }
-        
+
         if (attempts < 3) {
           const delay = 500 * Math.pow(2, attempts);
           console.log(`⏳ Waiting ${delay}ms before retry...`);
@@ -401,8 +515,7 @@ app.post('/api/esp-buchungen', async (req, res) => {
       message: 'Form submission and PXL transaction processed',
       id: saved._id,
       pxl: pxlResponse?.data,
-
-processMeta: meta
+      processMeta: meta
     });
   } catch (error) {
     console.error('❌ Error saving form submission:');
@@ -494,18 +607,27 @@ app.post('/api/pxl/webhook', async (req, res) => {
       case 'IDENTIFICATION_COMPLETED':
       case 'PENDING_MANUAL_REVIEW':
         console.log(`🔄 PXL Status Update: ${eventType} for transaction: ${transactionId}`);
-
         // For specific statuses, get data and send email
         if (['DOCUMENT_SCAN_COMPLETED', 'DOCUMENT_RECORDING_COMPLETED', 'SELFIE_COMPLETED', 'IDENTIFICATION_COMPLETED', 'PENDING_MANUAL_REVIEW'].includes(eventType)) {
           try {
-            console.log(`📧 Triggering PDF generation and email for status: ${eventType}`);
-            const emailResult = await getPxlDataAndSendEmail(transactionId, eventType);
+            console.log(`📧 Triggering email for status: ${eventType}`);
+            
+            let emailResult;
+            
+            // Special handling for IDENTIFICATION_COMPLETED - send welcome email to user
+            if (eventType === 'IDENTIFICATION_COMPLETED') {
+              emailResult = await sendWelcomeEmailToUser(transactionId, eventType);
+            } else {
+              // For other statuses, get PXL data and send PDF email
+              emailResult = await getPxlDataAndSendEmail(transactionId, eventType);
+            }
+            
             processingResult = {
               type: 'pxl_status',
               action: 'processed_with_email',
               emailResult: emailResult
             };
-            console.log('✅ PDF generated and email sent successfully');
+            console.log('✅ Email sent successfully');
           } catch (emailError) {
             console.error('❌ Failed to send email:', emailError.message);
             processingResult = {
@@ -517,11 +639,6 @@ app.post('/api/pxl/webhook', async (req, res) => {
         } else {
           processingResult = { type: 'pxl_status', action: 'processed' };
         }
-        break;
-
-      default:
-        console.log('📋 Generic webhook event:', eventType);
-        processingResult = { type: 'generic', action: 'processed' };
     }
 
     // Update webhook record with processing results

@@ -401,17 +401,8 @@ app.post('/api/esp-buchungen', async (req, res) => {
       message: 'Form submission and PXL transaction processed',
       id: saved._id,
       pxl: pxlResponse?.data,
-      pxl: {
-        transactionId: pxlResponse?.data?.data?.id,
-        transactionCode: pxlResponse?.data?.data?.transactionCode,
-        status: pxlResponse?.data?.data?.status,
-        transactionUrls: pxlResponse?.data?.data?.transactionUrls,
-        accountId: pxlResponse?.data?.data?.accountId,
-        workflowId: pxlResponse?.data?.data?.workflowId,
-        createdAt: pxlResponse?.data?.data?.createdAt,
-        expiresAt: pxlResponse?.data?.data?.expiresAt
-      },
-      processMeta: meta
+
+processMeta: meta
     });
   } catch (error) {
     console.error('❌ Error saving form submission:');

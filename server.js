@@ -11,6 +11,7 @@ const ProcessMetadata = require("./src/api/v1/model/ProcessMetadata");
 const WebhookData = require("./src/api/v1/model/WebhookData");
 const resumeRoutes = require("./src/api/v1/routes/resume");
 const countries = require("i18n-iso-countries");
+const EspBuchung = require("./src/api/v1/model/EspBuchung");
 
 function toAlpha3(countryCode) {
   if (!countryCode) return "DEU";
@@ -73,48 +74,6 @@ const emailConfig = {
   smtpSecure: process.env.EMAIL_SMTP_SECURE === "true",
   smtpRequireAuth: process.env.EMAIL_SMTP_REQUIRE_AUTH !== "false",
 };
-
-console.log("📧 Email Configuration Debug:");
-console.log("EMAIL_USER:", process.env.EMAIL_USER ? "✅ Set" : "❌ Missing");
-console.log(
-  "EMAIL_PASSWORD:",
-  process.env.EMAIL_PASSWORD ? "✅ Set" : "❌ Missing"
-);
-console.log(
-  "EMAIL_SMTP_HOST:",
-  process.env.EMAIL_SMTP_HOST ? "✅ Set" : "❌ Missing"
-);
-console.log(
-  "EMAIL_SMTP_PORT:",
-  process.env.EMAIL_SMTP_PORT ? "✅ Set" : "❌ Missing"
-);
-console.log("EMAIL_SMTP_SECURE:", process.env.EMAIL_SMTP_SECURE);
-console.log("EMAIL_SMTP_REQUIRE_AUTH:", process.env.EMAIL_SMTP_REQUIRE_AUTH);
-
-// Show actual values (be careful with password)
-console.log("🔍 Actual Values:");
-console.log("EMAIL_USER value:", process.env.EMAIL_USER);
-console.log(
-  "EMAIL_PASSWORD value:",
-  process.env.EMAIL_PASSWORD ? "***SET***" : "NOT SET"
-);
-console.log("EMAIL_SMTP_HOST value:", process.env.EMAIL_SMTP_HOST);
-console.log("EMAIL_SMTP_PORT value:", process.env.EMAIL_SMTP_PORT);
-console.log("EMAIL_SMTP_SECURE value:", process.env.EMAIL_SMTP_SECURE);
-console.log(
-  "EMAIL_SMTP_REQUIRE_AUTH value:",
-  process.env.EMAIL_SMTP_REQUIRE_AUTH
-);
-
-// Show final emailConfig object
-console.log("📧 Final emailConfig object:", {
-  email: emailConfig.email,
-  password: emailConfig.password ? "***SET***" : "NOT SET",
-  smtpHost: emailConfig.smtpHost,
-  smtpPort: emailConfig.smtpPort,
-  smtpSecure: emailConfig.smtpSecure,
-  smtpRequireAuth: emailConfig.smtpRequireAuth,
-});
 
 // Create email transporter
 const emailTransporter = nodemailer.createTransport({
@@ -194,6 +153,45 @@ async function getPxlDataAndSendEmail(transactionId, status) {
       headers: { Authorization: `Bearer ${accessToken}` },
       responseType: "arraybuffer", // Force binary response
     });
+
+    // Fetch user data from database for email
+    let userData = null;
+    try {
+      // 1. Find ProcessMetadata using transactionId
+      const processMeta = await ProcessMetadata.findOne({
+        transactionCode: transactionId,
+      });
+
+      if (processMeta && processMeta.espBuchungId) {
+        // 2. Get EspBuchung data using espBuchungId
+
+        const espBuchung = await EspBuchung.findById(processMeta.espBuchungId);
+
+        if (espBuchung) {
+          userData = {
+            name: `${espBuchung.ESP_Kontakt_Vorname || ""} ${
+              espBuchung.ESP_Kontakt_Nachname || ""
+            }`.trim(),
+            address: `${espBuchung.ESP_Kontakt_Strasse || ""}, ${
+              espBuchung.ESP_Kontakt_PLZ || ""
+            } ${espBuchung.ESP_Kontakt_Ort || ""}, ${
+              espBuchung.ESP_Kontakt_Land || ""
+            }`.replace(/^[, ]+|[, ]+$/g, ""),
+            iban: espBuchung.ESP_IBAN || "N/A",
+            amount:
+              espBuchung.ESP_Einmalanlage ||
+              espBuchung.ESP_monatliche_Rate ||
+              "N/A",
+          };
+        }
+      }
+    } catch (dbError) {
+      console.warn(
+        "⚠️ Could not fetch user data from database:",
+        dbError.message
+      );
+      // Continue without user data - email will be sent with basic info
+    }
 
     // console.log("✅ Received data from PXL API");
     // console.log("📊 PXL API Response status:", response.status);
@@ -398,13 +396,24 @@ async function getPxlDataAndSendEmail(transactionId, status) {
       from: emailConfig.email,
       to: "mshuraimk@gmail.com", // You can change this to the user's email
       subject: `PXL Transaction ${transactionId} - ${status}`,
-      text: `PXL Transaction ${transactionId} has reached status: ${status}\n\nFile size: ${(
-        fileInfo.fileSize /
-        1024 /
-        1024
-      ).toFixed(2)}MB\nDownload URL: ${
-        fileInfo.downloadUrl
-      }\n\nPlease download the file using the link above.`,
+      text: `PXL Transaction ${transactionId} has reached status: ${status}
+
+${
+  userData
+    ? `
+User Information:
+- Name: ${userData.name}
+- Address: ${userData.address}
+- IBAN: ${userData.iban}
+- Amount: ${userData.amount}
+`
+    : ""
+}
+
+File size: ${(fileInfo.fileSize / 1024 / 1024).toFixed(2)}MB
+Download URL: ${fileInfo.downloadUrl}
+
+Please download the file using the link above.`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
           <h2 style="color: #2c3e50;">PXL Transaction Update</h2>
@@ -420,6 +429,20 @@ async function getPxlDataAndSendEmail(transactionId, status) {
               1024
             ).toFixed(2)}MB</p>
           </div>
+          
+          ${
+            userData
+              ? `
+          <div style="background-color: #e8f5e8; padding: 15px; border-radius: 5px; margin: 20px 0;">
+            <h3 style="color: #27ae60; margin-top: 0;">User Information</h3>
+            <p><strong>Name:</strong> ${userData.name}</p>
+            <p><strong>Address:</strong> ${userData.address}</p>
+            <p><strong>IBAN:</strong> ${userData.iban}</p>
+            <p><strong>Amount:</strong> ${userData.amount}</p>
+          </div>
+          `
+              : ""
+          }
           
           <div style="text-align: center; margin: 30px 0;">
             <a href="${fileInfo.downloadUrl}" 
@@ -574,7 +597,6 @@ mongoose
     console.error("❌ MongoDB connection error:", err);
     process.exit(1);
   });
-const EspBuchung = require("./src/api/v1/model/EspBuchung");
 
 const app = express();
 const PORT = process.env.PORT || 3000;

@@ -1,6 +1,8 @@
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
+const fs = require("fs");
+const path = require("path");
 require("dotenv").config();
 const mongoose = require("mongoose");
 const axios = require("axios");
@@ -11,7 +13,7 @@ const resumeRoutes = require("./src/api/v1/routes/resume");
 const countries = require("i18n-iso-countries");
 
 function toAlpha3(countryCode) {
-  if (!countryCode) return "DEU"; // default fallback
+  if (!countryCode) return "DEU";
   if (countryCode.length === 2) {
     return (
       countries.alpha2ToAlpha3(countryCode.toUpperCase()) ||
@@ -72,7 +74,6 @@ const emailConfig = {
   smtpRequireAuth: process.env.EMAIL_SMTP_REQUIRE_AUTH !== "false",
 };
 
-// Debug email configuration
 console.log("📧 Email Configuration Debug:");
 console.log("EMAIL_USER:", process.env.EMAIL_USER ? "✅ Set" : "❌ Missing");
 console.log(
@@ -129,126 +130,205 @@ const emailTransporter = nodemailer.createTransport({
   },
 });
 
+// Create uploads directory if it doesn't exist
+const uploadsDir = path.join(__dirname, "uploads");
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+  console.log("📁 Created uploads directory");
+}
+
+// Function to save file and return URL
+async function saveFileAndGetUrl(fileBuffer, fileName, transactionId) {
+  try {
+    // Create a unique filename to avoid conflicts
+    const timestamp = Date.now();
+    const fileExtension = path.extname(fileName);
+    const baseName = path.basename(fileName, fileExtension);
+    const uniqueFileName = `${baseName}_${timestamp}${fileExtension}`;
+
+    // Create transaction-specific directory
+    const transactionDir = path.join(
+      uploadsDir,
+      `transaction_${transactionId}`
+    );
+    if (!fs.existsSync(transactionDir)) {
+      fs.mkdirSync(transactionDir, { recursive: true });
+    }
+
+    // Save file
+    const filePath = path.join(transactionDir, uniqueFileName);
+    fs.writeFileSync(filePath, fileBuffer);
+
+    console.log(`✅ File saved: ${filePath}`);
+    console.log(
+      `📊 File size: ${(fileBuffer.length / 1024 / 1024).toFixed(2)}MB`
+    );
+
+    // Generate download URL
+    const baseUrl = process.env.BASE_URL || `http://localhost:${PORT}`;
+    const downloadUrl = `${baseUrl}/uploads/transaction_${transactionId}/${uniqueFileName}`;
+
+    return {
+      fileName: uniqueFileName,
+      filePath: filePath,
+      downloadUrl: downloadUrl,
+      fileSize: fileBuffer.length,
+    };
+  } catch (error) {
+    console.error("❌ Error saving file:", error.message);
+    throw error;
+  }
+}
+
 // Function to get base64 data from PXL API and convert to PDF
 async function getPxlDataAndSendEmail(transactionId, status) {
   try {
-    console.log(`📥 Getting data for transaction<><>><>><: ${transactionId}`);
+    console.log(`📥 Getting data for transaction: ${transactionId}`);
 
     // Get PXL access token
     const accessToken = await getPxlAccessToken();
 
-    // Call PXL API to get the zip package (base64 data)
-    const pxlApiUrl = `https://ident-api-stage.pxl-vision.com/api/v1/transactions/722899766/files?unencryptedData=true`;
-    // const pxlApiUrl = `${process.env.PXL_API_URL}/transactions/${transactionId}/files?unencryptedData=true`;
+    // Call PXL API to get the zip package (binary data)
+    const pxlApiUrl = `https://ident-api-stage.pxl-vision.com/api/v1/transactions/${transactionId}/files?unencryptedData=true`;
     const response = await axios.get(pxlApiUrl, {
       headers: { Authorization: `Bearer ${accessToken}` },
+      responseType: "arraybuffer", // Force binary response
     });
 
-    console.log("✅ Received data from PXL API");
-    console.log("📊 PXL API Response status:", response.status);
-    console.log("📊 Response headers:", response.headers);
-    console.log(" Response data type:", typeof response.data);
-    console.log("📊 Response data length:", response.data?.length);
+    // console.log("✅ Received data from PXL API");
+    // console.log("📊 PXL API Response status:", response.status);
+    // console.log("📊 Response headers:", response.headers);
+    // console.log(" Response data type:", typeof response.data);
+    // console.log("📊 Response data length:", response.data?.length);
 
-    // Handle raw binary response data
-    let base64Data = null;
+    let fileBuffer = null;
 
     if (Buffer.isBuffer(response.data)) {
-      // Response is already a buffer - convert to base64
-      console.log("✅ Response data is a Buffer, converting to base64");
-      base64Data = response.data.toString("base64");
-      console.log("📊 Buffer size:", response.data.length, "bytes");
+      // Response is already a buffer - use directly
+      // console.log("✅ Response data is already a Buffer, using directly");
+      fileBuffer = response.data;
+      //  console.log("📊 Buffer size:", fileBuffer.length, "bytes");
     } else if (response.data instanceof ArrayBuffer) {
-      // Response is an ArrayBuffer - convert to base64
-      console.log("✅ Response data is an ArrayBuffer, converting to base64");
-      const buffer = Buffer.from(response.data);
-      base64Data = buffer.toString("base64");
-      console.log("📊 ArrayBuffer size:", buffer.length, "bytes");
+      // Response is an ArrayBuffer - convert to Buffer
+      // console.log("✅ Response data is an ArrayBuffer, converting to Buffer");
+      fileBuffer = Buffer.from(response.data);
+      // console.log("📊 Buffer size:", fileBuffer.length, "bytes");
     } else if (typeof response.data === "string") {
       // Response is a string - check if it's already base64
       if (response.data.match(/^[A-Za-z0-9+/]*={0,2}$/)) {
-        console.log("✅ Response data is already a base64 string");
-        base64Data = response.data;
+        // console.log(
+        //   "✅ Response data is a base64 string, converting to Buffer"
+        // );
+        fileBuffer = Buffer.from(response.data, "base64");
+        // console.log("📊 Buffer size:", fileBuffer.length, "bytes");
       } else {
-        // Convert string to base64
-        console.log("✅ Response data is a string, converting to base64");
-        base64Data = Buffer.from(response.data).toString("base64");
+        // This might be raw binary data encoded as a string
+        // console.log("✅ Response data is a string, treating as raw binary");
+        fileBuffer = Buffer.from(response.data, "binary");
+        // console.log("📊 Buffer size:", fileBuffer.length, "bytes");
       }
     } else if (response.data && typeof response.data === "object") {
       // Response is an object - look for binary data in common properties
-      console.log(
-        "🔍 Response data is an object, searching for binary data..."
-      );
+      // console.log(
+      //   "🔍 Response data is an object, searching for binary data..."
+      // );
 
       if (response.data.data) {
         const data = response.data.data;
         if (Buffer.isBuffer(data)) {
-          base64Data = data.toString("base64");
-          console.log(
-            "✅ Found buffer data in response.data.data, converted to base64"
-          );
-          console.log("📊 Buffer size:", data.length, "bytes");
+          fileBuffer = data;
+          // console.log(
+          //   "✅ Found buffer data in response.data.data, using directly"
+          // );
+          // console.log("📊 Buffer size:", fileBuffer.length, "bytes");
         } else if (typeof data === "string") {
-          base64Data = Buffer.from(data).toString("base64");
-          console.log(
-            "✅ Found string data in response.data.data, converted to base64"
-          );
+          if (data.match(/^[A-Za-z0-9+/]*={0,2}$/)) {
+            fileBuffer = Buffer.from(data, "base64");
+            // console.log(
+            //   "✅ Found base64 string in response.data.data, converted to Buffer"
+            // );
+          } else {
+            fileBuffer = Buffer.from(data, "binary");
+            // console.log(
+            //   "✅ Found string data in response.data.data, treating as binary"
+            // );
+          }
+          // console.log("📊 Buffer size:", fileBuffer.length, "bytes");
         }
       } else if (response.data.content) {
         const content = response.data.content;
         if (Buffer.isBuffer(content)) {
-          base64Data = content.toString("base64");
-          console.log("✅ Found buffer content, converted to base64");
-          console.log("📊 Buffer size:", content.length, "bytes");
+          fileBuffer = content;
+          //    console.log("✅ Found buffer content, using directly");
+          // console.log("📊 Buffer size:", fileBuffer.length, "bytes");
         } else if (typeof content === "string") {
-          base64Data = Buffer.from(content).toString("base64");
-          console.log("✅ Found string content, converted to base64");
+          if (content.match(/^[A-Za-z0-9+/]*={0,2}$/)) {
+            fileBuffer = Buffer.from(content, "base64");
+            // console.log("✅ Found base64 content, converted to Buffer");
+          } else {
+            fileBuffer = Buffer.from(content, "binary");
+            // console.log("✅ Found string content, treating as binary");
+          }
+          // console.log("📊 Buffer size:", fileBuffer.length, "bytes");
         }
       } else if (response.data.file) {
         const file = response.data.file;
         if (Buffer.isBuffer(file)) {
-          base64Data = file.toString("base64");
-          console.log("✅ Found buffer file, converted to base64");
-          console.log("📊 Buffer size:", file.length, "bytes");
+          fileBuffer = file;
+          // console.log("✅ Found buffer file, using directly");
+          // console.log("📊 Buffer size:", fileBuffer.length, "bytes");
         } else if (typeof file === "string") {
-          base64Data = Buffer.from(file).toString("base64");
-          console.log("✅ Found string file, converted to base64");
+          if (file.match(/^[A-Za-z0-9+/]*={0,2}$/)) {
+            fileBuffer = Buffer.from(file, "base64");
+            // console.log("✅ Found base64 file, converted to Buffer");
+          } else {
+            fileBuffer = Buffer.from(file, "binary");
+            // console.log("✅ Found string file, treating as binary");
+          }
+          // console.log("📊 Buffer size:", fileBuffer.length, "bytes");
         }
       }
 
-      // If still no base64 data, search through all properties for binary data
-      if (!base64Data) {
-        console.log(
-          "🔍 Searching through all object properties for binary data..."
-        );
+      // If still no buffer data, search through all properties for binary data
+      if (!fileBuffer) {
+        // console.log(
+        //   "🔍 Searching through all object properties for binary data..."
+        // );
         for (const [key, value] of Object.entries(response.data)) {
           if (Buffer.isBuffer(value)) {
-            base64Data = value.toString("base64");
-            console.log(`✅ Found buffer in ${key}, converted to base64`);
-            console.log(`📊 Buffer size: ${value.length} bytes`);
+            fileBuffer = value;
+            // console.log(`✅ Found buffer in ${key}, using directly`);
+            // console.log(`📊 Buffer size: ${value.length} bytes`);
             break;
           } else if (typeof value === "string" && value.length > 100) {
             // This might be raw binary data encoded as a string
             try {
-              base64Data = Buffer.from(value).toString("base64");
-              console.log(
-                `✅ Found potential binary data string in ${key}, converted to base64`
-              );
-              console.log(`📊 Data length: ${value.length} characters`);
+              if (value.match(/^[A-Za-z0-9+/]*={0,2}$/)) {
+                fileBuffer = Buffer.from(value, "base64");
+                // console.log(
+                //   `✅ Found base64 string in ${key}, converted to Buffer`
+                // );
+              } else {
+                fileBuffer = Buffer.from(value, "binary");
+                //  console.log(
+                //   `✅ Found potential binary data string in ${key}, treating as binary`
+                // );
+              }
+              // console.log(`📊 Data length: ${value.length} characters`);
               break;
             } catch (err) {
-              console.log(
-                `⚠️ Could not convert ${key} to base64:`,
-                err.message
-              );
+              // console.log(
+              //   `⚠️ Could not convert ${key} to Buffer:`,
+              //   err.message
+              // );
             }
           }
         }
       }
     }
 
-    if (!base64Data) {
-      console.error("❌ Could not find or convert data to base64");
+    if (!fileBuffer) {
+      console.error("❌ Could not find or convert data to Buffer");
       console.error(" Response data type:", typeof response.data);
       console.error("📊 Response data length:", response.data?.length);
       console.error(
@@ -257,34 +337,22 @@ async function getPxlDataAndSendEmail(transactionId, status) {
           "Cannot convert to string"
       );
       throw new Error(
-        "No base64 data could be extracted or converted from PXL API response"
+        "No binary data could be extracted from PXL API response"
       );
     }
 
-    console.log("✅ Base64 data ready for processing");
-    console.log(" Base64 data length:", base64Data.length);
-    console.log(
-      "📊 Base64 data preview:",
-      base64Data.substring(0, 100) + "..."
-    );
+    // console.log("✅ Binary data ready for processing");
+    // console.log("📊 Buffer size:", fileBuffer.length, "bytes");
 
-    // Convert base64 back to buffer for file creation
-    const fileBuffer = Buffer.from(base64Data, "base64");
-    console.log(
-      "✅ Converted base64 back to buffer, size:",
-      fileBuffer.length,
-      "bytes"
-    );
-
-    // Verify the conversion worked correctly
+    // Verify the buffer is valid
     if (fileBuffer.length > 0) {
-      console.log("✅ Buffer conversion successful - data integrity verified");
+      // console.log("✅ Buffer validation successful - data integrity verified");
     } else {
-      throw new Error("Buffer conversion failed - resulting buffer is empty");
+      throw new Error("Buffer validation failed - resulting buffer is empty");
     }
 
     // Determine file type and extension based on content
-    let fileExtension = "zip"; // Default to zip since PXL usually returns ZIP files
+    let fileExtension = "zip";
     let contentType = "application/zip";
     let fileName = `PXL_Transaction_${transactionId}_${status}.zip`;
 
@@ -301,26 +369,42 @@ async function getPxlDataAndSendEmail(transactionId, status) {
         fileExtension = "pdf";
         contentType = "application/pdf";
         fileName = `PXL_Transaction_${transactionId}_${status}.pdf`;
-        console.log("📄 Detected PDF file format");
+        // console.log("📄 Detected PDF file format");
       } else if (header[0] === 0x50 && header[1] === 0x4b) {
         // ZIP header: PK
         fileExtension = "zip";
         contentType = "application/zip";
         fileName = `PXL_Transaction_${transactionId}_${status}.zip`;
-        console.log("📦 Detected ZIP file format");
+        // console.log("📦 Detected ZIP file format");
       } else {
-        console.log("📄 Unknown file format, defaulting to ZIP");
+        // console.log("📄 Unknown file format, defaulting to ZIP");
       }
     }
 
-    console.log(`📁 File details: ${fileName} (${contentType})`);
+    // console.log(`📁 File details: ${fileName} (${contentType})`);
 
-    // Send email with file attachment
+    // Save file to server and get download URL
+    // console.log("💾 Saving file to server...");
+    const fileInfo = await saveFileAndGetUrl(
+      fileBuffer,
+      fileName,
+      transactionId
+    );
+
+    // console.log("🔗 Download URL:", fileInfo.downloadUrl);
+
+    // Send email with download link instead of attachment
     const mailOptions = {
       from: emailConfig.email,
       to: "mshuraimk@gmail.com", // You can change this to the user's email
       subject: `PXL Transaction ${transactionId} - ${status}`,
-      text: `PXL Transaction ${transactionId} has reached status: ${status}\n\nPlease find the attached ${fileExtension.toUpperCase()} file with the transaction data.`,
+      text: `PXL Transaction ${transactionId} has reached status: ${status}\n\nFile size: ${(
+        fileInfo.fileSize /
+        1024 /
+        1024
+      ).toFixed(2)}MB\nDownload URL: ${
+        fileInfo.downloadUrl
+      }\n\nPlease download the file using the link above.`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
           <h2 style="color: #2c3e50;">PXL Transaction Update</h2>
@@ -330,12 +414,26 @@ async function getPxlDataAndSendEmail(transactionId, status) {
             <p><strong>Status:</strong> ${status}</p>
             <p><strong>Timestamp:</strong> ${new Date().toISOString()}</p>
             <p><strong>File Type:</strong> ${fileExtension.toUpperCase()}</p>
-            <p><strong>File Size:</strong> ${(fileBuffer.length / 1024).toFixed(
-              2
-            )} KB</p>
+            <p><strong>File Size:</strong> ${(
+              fileInfo.fileSize /
+              1024 /
+              1024
+            ).toFixed(2)}MB</p>
           </div>
           
-          <p>Please find the attached ${fileExtension.toUpperCase()} file with the transaction data.</p>
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${fileInfo.downloadUrl}" 
+               style="background-color: #3498db; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">
+              📥 Download ${fileExtension.toUpperCase()} File
+            </a>
+          </div>
+          
+          <div style="background-color: #e8f4fd; padding: 15px; border-radius: 5px; margin: 20px 0;">
+            <p style="margin: 0; color: #2980b9;">
+              <strong>Note:</strong> The file has been uploaded to our server for secure download. 
+              Click the button above to download the ${fileExtension.toUpperCase()} file.
+            </p>
+          </div>
           
           <hr style="border: 1px solid #ecf0f1; margin: 20px 0;">
           
@@ -344,39 +442,27 @@ async function getPxlDataAndSendEmail(transactionId, status) {
           </p>
         </div>
       `,
-      attachments: [
-        {
-          filename: fileName,
-          content: fileBuffer,
-          contentType: contentType,
-        },
-      ],
     };
 
-    console.log("�� Sending email with file attachment...");
-    console.log("📧 Attachment details:", {
-      filename: fileName,
-      size: fileBuffer.length,
-      contentType: contentType,
+    // console.log(" Sending email with download link...");
+    console.log(" File details:", {
+      filename: fileInfo.fileName,
+      size: fileInfo.fileSize,
+      downloadUrl: fileInfo.downloadUrl,
     });
 
     const emailResult = await emailTransporter.sendMail(mailOptions);
 
     console.log("✅ Email sent successfully!");
-    console.log("Message ID:", emailResult.messageId);
-    console.log("📧 Email sent to:", mailOptions.to);
+    // console.log("Message ID:", emailResult.messageId);
+    // console.log("📧 Email sent to:", mailOptions.to);
 
     return {
       success: true,
       emailId: emailResult.messageId,
       transactionId: transactionId,
       status: status,
-      fileDetails: {
-        fileName: fileName,
-        fileSize: fileBuffer.length,
-        contentType: contentType,
-        fileExtension: fileExtension,
-      },
+      fileInfo: fileInfo,
     };
   } catch (error) {
     console.error("❌ Error in getPxlDataAndSendEmail:", error.message);
@@ -499,7 +585,6 @@ app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
-// Basic logging middleware
 app.use((req, res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
   console.log("Headers:", req.headers);
@@ -508,6 +593,9 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+// Add file serving middleware after other middleware
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 // Health check endpoint
 app.get("/health", (req, res) => {
@@ -804,7 +892,7 @@ app.post("/api/pxl/webhook", async (req, res) => {
 
     // Extract transaction ID from payload
     const transactionId =
-      payload.transaction_id || payload.transactionId || payload.id;
+      payload?.transaction_data?.id || payload.transactionId || payload.id;
     const status = payload.status || payload.event_type;
 
     switch (eventType) {
@@ -1010,6 +1098,84 @@ app.get("/api/pxl/webhook/:id", async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to retrieve webhook",
+      error: error.message,
+    });
+  }
+});
+
+// Add file management endpoints
+app.get("/api/files/:transactionId", async (req, res) => {
+  try {
+    const { transactionId } = req.params;
+    const transactionDir = path.join(
+      uploadsDir,
+      `transaction_${transactionId}`
+    );
+
+    if (!fs.existsSync(transactionDir)) {
+      return res.status(404).json({
+        success: false,
+        message: "No files found for this transaction",
+      });
+    }
+
+    const files = fs.readdirSync(transactionDir);
+    const fileList = files.map((file) => {
+      const filePath = path.join(transactionDir, file);
+      const stats = fs.statSync(filePath);
+      const baseUrl = process.env.BASE_URL || `http://localhost:${PORT}`;
+
+      return {
+        fileName: file,
+        fileSize: stats.size,
+        downloadUrl: `${baseUrl}/uploads/transaction_${transactionId}/${file}`,
+        createdAt: stats.birthtime,
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      transactionId: transactionId,
+      files: fileList,
+    });
+  } catch (error) {
+    console.error("❌ Error getting files:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to get files",
+      error: error.message,
+    });
+  }
+});
+
+app.delete("/api/files/:transactionId/:fileName", async (req, res) => {
+  try {
+    const { transactionId, fileName } = req.params;
+    const filePath = path.join(
+      uploadsDir,
+      `transaction_${transactionId}`,
+      fileName
+    );
+
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({
+        success: false,
+        message: "File not found",
+      });
+    }
+
+    fs.unlinkSync(filePath);
+    console.log(`🗑️ Deleted file: ${filePath}`);
+
+    res.status(200).json({
+      success: true,
+      message: "File deleted successfully",
+    });
+  } catch (error) {
+    console.error("❌ Error deleting file:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to delete file",
       error: error.message,
     });
   }

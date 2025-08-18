@@ -848,6 +848,8 @@ app.post("/api/esp-buchungen", async (req, res) => {
       webhook: {
         url: WEBHOOK_URL,
       },
+      forwardUrl: `${process.env.BASE_URL || `http://localhost:${PORT}`}/pxl/success?lang=de`,
+      errorUrl: `${process.env.BASE_URL || `http://localhost:${PORT}`}/pxl/error?lang=de`,
     };
 
     console.log(

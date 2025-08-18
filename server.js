@@ -99,7 +99,6 @@ if (!fs.existsSync(uploadsDir)) {
 // Function to save file and return URL
 async function saveFileAndGetUrl(fileBuffer, fileName, transactionId) {
   try {
-    // Create a unique filename to avoid conflicts
     const timestamp = Date.now();
     const fileExtension = path.extname(fileName);
     const baseName = path.basename(fileName, fileExtension);
@@ -169,19 +168,47 @@ async function getPxlDataAndSendEmail(transactionId, status) {
 
         if (espBuchung) {
           userData = {
+            // Personal Information
             name: `${espBuchung.ESP_Kontakt_Vorname || ""} ${
               espBuchung.ESP_Kontakt_Nachname || ""
             }`.trim(),
+            anrede: espBuchung.ESP_Kontakt_Anrede || "N/A",
+            firma: espBuchung.ESP_Kontakt_Firma || "N/A",
+
+            // Contact Information
             address: `${espBuchung.ESP_Kontakt_Strasse || ""}, ${
               espBuchung.ESP_Kontakt_PLZ || ""
             } ${espBuchung.ESP_Kontakt_Ort || ""}, ${
               espBuchung.ESP_Kontakt_Land || ""
             }`.replace(/^[, ]+|[, ]+$/g, ""),
+            telefon: espBuchung.ESP_Kontakt_Telefon || "N/A",
+            email: espBuchung.ESP_Kontakt_EMailAdresse || "N/A",
+
+            // Financial Information
             iban: espBuchung.ESP_IBAN || "N/A",
-            amount:
-              espBuchung.ESP_Einmalanlage ||
-              espBuchung.ESP_monatliche_Rate ||
-              "N/A",
+            kontoinhaber: espBuchung.ESP_Kontoinhaber || "N/A",
+            kreditinstitut: espBuchung.ESP_Kreditinstitut || "N/A",
+            monatlicheRate: espBuchung.ESP_monatliche_Rate || "N/A",
+            einmalanlage: espBuchung.ESP_Einmalanlage || "N/A",
+
+            // Additional Options
+            gemeinschaftssparplan:
+              espBuchung.ESP_Gemeinschaftssparplan || "N/A",
+            gspVorname: espBuchung.ESP_GSP_Vorname || "N/A",
+            gspNachname: espBuchung.ESP_GSP_Nachname || "N/A",
+            gspEmail: espBuchung.ESP_GSP_Email || "N/A",
+            handeltAufEigeneRechnung:
+              espBuchung.ESP_Handelt_auf_eigene_Rechnung || "N/A",
+
+            // Legal Agreements
+            vertragsbedingungen: espBuchung.ESP_Vertragsbedingungen || "N/A",
+            datenschutzbestimmungen:
+              espBuchung.ESP_Datenschutzbestimmungen || "N/A",
+
+            // Timestamps
+            createdAt: espBuchung.createdAt
+              ? new Date(espBuchung.createdAt).toLocaleString("de-DE")
+              : "N/A",
           };
         }
       }
@@ -434,11 +461,68 @@ Please download the file using the link above.`,
             userData
               ? `
           <div style="background-color: #e8f5e8; padding: 15px; border-radius: 5px; margin: 20px 0;">
-            <h3 style="color: #27ae60; margin-top: 0;">User Information</h3>
-            <p><strong>Name:</strong> ${userData.name}</p>
-            <p><strong>Address:</strong> ${userData.address}</p>
-            <p><strong>IBAN:</strong> ${userData.iban}</p>
-            <p><strong>Amount:</strong> ${userData.amount}</p>
+            <h3 style="color: #27ae60; margin-top: 0;">ESP Buchung Details</h3>
+            
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+              <div>
+                <h4 style="color: #2c3e50; margin: 15px 0 10px 0;">Personal Information</h4>
+                <p><strong>Anrede:</strong> ${userData.anrede}</p>
+                <p><strong>Name:</strong> ${userData.name}</p>
+                <p><strong>Firma:</strong> ${userData.firma}</p>
+                
+                <h4 style="color: #2c3e50; margin: 15px 0 10px 0;">Contact Information</h4>
+                <p><strong>Address:</strong> ${userData.address}</p>
+                <p><strong>Telefon:</strong> ${userData.telefon}</p>
+                <p><strong>Email:</strong> ${userData.email}</p>
+              </div>
+              
+              <div>
+                <h4 style="color: #2c3e50; margin: 15px 0 10px 0;">Financial Information</h4>
+                <p><strong>IBAN:</strong> ${userData.iban}</p>
+                <p><strong>Kontoinhaber:</strong> ${userData.kontoinhaber}</p>
+                <p><strong>Kreditinstitut:</strong> ${
+                  userData.kreditinstitut
+                }</p>
+                <p><strong>Monatliche Rate:</strong> ${
+                  userData.monatlicheRate
+                }</p>
+                <p><strong>Einmalanlage:</strong> ${userData.einmalanlage}</p>
+              </div>
+            </div>
+            
+            <div style="margin-top: 15px;">
+              <h4 style="color: #2c3e50; margin: 15px 0 10px 0;">Additional Options</h4>
+              <p><strong>Gemeinschaftssparplan:</strong> ${
+                userData.gemeinschaftssparplan
+              }</p>
+              ${
+                userData.gemeinschaftssparplan !== "Nein"
+                  ? `
+              <p><strong>GSP Vorname:</strong> ${userData.gspVorname}</p>
+              <p><strong>GSP Nachname:</strong> ${userData.gspNachname}</p>
+              <p><strong>GSP Email:</strong> ${userData.gspEmail}</p>
+              `
+                  : ""
+              }
+              <p><strong>Handelt auf eigene Rechnung:</strong> ${
+                userData.handeltAufEigeneRechnung
+              }</p>
+            </div>
+            
+            <div style="margin-top: 15px;">
+              <h4 style="color: #2c3e50; margin: 15px 0 10px 0;">Legal Agreements</h4>
+              <p><strong>Vertragsbedingungen:</strong> ${
+                userData.vertragsbedingungen
+              }</p>
+              <p><strong>Datenschutzbestimmungen:</strong> ${
+                userData.datenschutzbestimmungen
+              }</p>
+            </div>
+            
+            <div style="margin-top: 15px;">
+              <h4 style="color: #2c3e50; margin: 15px 0 10px 0;">Timestamps</h4>
+              <p><strong>Created:</strong> ${userData.createdAt}</p>
+            </div>
           </div>
           `
               : ""

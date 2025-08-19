@@ -569,7 +569,7 @@ Please download the file using the link above.`,
       success: true,
       emailId: emailResult.messageId,
       transactionId: transactionId,
-      status: status,
+      // status: status,
       fileInfo: fileInfo,
     };
   } catch (error) {
@@ -981,7 +981,7 @@ app.post("/api/pxl/webhook", async (req, res) => {
     const eventType =
       payload.event_type || payload.type || payload.event || "unknown";
     console.log(`🎯 Processing event type: ${eventType}`);
-    const eventStatus = payload.status || payload.event_type;
+    const eventStatus = payload?.transaction_data?.status || payload.event_type;
     console.log(`🎯 Processing event status: ${eventStatus}`);
 
     // Save webhook data to database
@@ -1002,9 +1002,9 @@ app.post("/api/pxl/webhook", async (req, res) => {
     let processingResult = null;
 
     // Extract transaction ID from payload
-    const transactionId =
-      payload?.transaction_data?.id || payload.transactionId || payload.id;
-    const status = payload.status || payload.event_type;
+    console.log("payload<><><><><><><>", payload);
+    const transactionId = payload?.transaction_data?.id;
+    // const status = payload.status ;
 
     switch (eventType || eventStatus) {
       case "document_created":

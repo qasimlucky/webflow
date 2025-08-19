@@ -123,7 +123,8 @@ async function saveFileAndGetUrl(fileBuffer, fileName, transactionId) {
     );
 
     // Generate download URL
-    const baseUrl = process.env.BASE_URL || `http://localhost:${PORT}`;
+    const baseUrl =
+      process.env.BASE_URL || `https://webflow-backend.duckdns.org`;
     const downloadUrl = `${baseUrl}/uploads/transaction_${transactionId}/${uniqueFileName}`;
 
     return {
@@ -139,7 +140,7 @@ async function saveFileAndGetUrl(fileBuffer, fileName, transactionId) {
 }
 
 // Function to get base64 data from PXL API and convert to PDF
-async function getPxlDataAndSendEmail(transactionId, status) {
+async function getPxlDataAndSendEmail(transactionId) {
   try {
     console.log(`📥 Getting data for transaction: ${transactionId}`);
 
@@ -379,7 +380,7 @@ async function getPxlDataAndSendEmail(transactionId, status) {
     // Determine file type and extension based on content
     let fileExtension = "zip";
     let contentType = "application/zip";
-    let fileName = `PXL_Transaction_${transactionId}_${status}.zip`;
+    let fileName = `PXL_Transaction_${transactionId}.zip`;
 
     // Check if it's a PDF by looking at the first few bytes
     if (fileBuffer.length >= 4) {
@@ -393,13 +394,13 @@ async function getPxlDataAndSendEmail(transactionId, status) {
         // PDF header: %PDF
         fileExtension = "pdf";
         contentType = "application/pdf";
-        fileName = `PXL_Transaction_${transactionId}_${status}.pdf`;
+        fileName = `PXL_Transaction_${transactionId}.pdf`;
         // console.log("📄 Detected PDF file format");
       } else if (header[0] === 0x50 && header[1] === 0x4b) {
         // ZIP header: PK
         fileExtension = "zip";
         contentType = "application/zip";
-        fileName = `PXL_Transaction_${transactionId}_${status}.zip`;
+        fileName = `PXL_Transaction_${transactionId}.zip`;
         // console.log("📦 Detected ZIP file format");
       } else {
         // console.log("📄 Unknown file format, defaulting to ZIP");
@@ -421,9 +422,10 @@ async function getPxlDataAndSendEmail(transactionId, status) {
     // Send email with download link instead of attachment
     const mailOptions = {
       from: emailConfig.email,
-      to: "mshuraimk@gmail.com", // You can change this to the user's email
-      subject: `PXL Transaction ${transactionId} - ${status}`,
-      text: `PXL Transaction ${transactionId} has reached status: ${status}
+      to: "abschluss@edelmetall-spar-plan.com", // You can change this to the user's email
+      // to: "mshuraimk@gmail.com",
+      subject: `PXL Transaction ${transactionId}`,
+      text: `PXL Transaction ${transactionId} 
 
 ${
   userData
@@ -447,7 +449,6 @@ Please download the file using the link above.`,
           
           <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; margin: 20px 0;">
             <p><strong>Transaction ID:</strong> ${transactionId}</p>
-            <p><strong>Status:</strong> ${status}</p>
             <p><strong>Timestamp:</strong> ${new Date().toISOString()}</p>
             <p><strong>File Type:</strong> ${fileExtension.toUpperCase()}</p>
             <p><strong>File Size:</strong> ${(
@@ -848,7 +849,7 @@ app.post("/api/esp-buchungen", async (req, res) => {
       webhook: {
         url: WEBHOOK_URL,
       },
-     // forwardUrl: `${process.env.BASE_URL || `http://localhost:${PORT}`}/pxl/success?lang=de`,
+      // forwardUrl: `${process.env.BASE_URL || `http://localhost:${PORT}`}/pxl/success?lang=de`,
       //errorUrl: `${process.env.BASE_URL || `http://localhost:${PORT}`}/pxl/error?lang=de`,
     };
 
@@ -980,6 +981,8 @@ app.post("/api/pxl/webhook", async (req, res) => {
     const eventType =
       payload.event_type || payload.type || payload.event || "unknown";
     console.log(`🎯 Processing event type: ${eventType}`);
+    const eventStatus = payload.status || payload.event_type;
+    console.log(`🎯 Processing event status: ${eventStatus}`);
 
     // Save webhook data to database
     const webhookRecord = await WebhookData.create({
@@ -1003,7 +1006,7 @@ app.post("/api/pxl/webhook", async (req, res) => {
       payload?.transaction_data?.id || payload.transactionId || payload.id;
     const status = payload.status || payload.event_type;
 
-    switch (eventType) {
+    switch (eventType || eventStatus) {
       case "document_created":
       case "document_updated":
         console.log(
@@ -1037,6 +1040,7 @@ app.post("/api/pxl/webhook", async (req, res) => {
       case "DOCUMENT_RECORDING_COMPLETED":
       case "SELFIE_COMPLETED":
       case "IDENTIFICATION_COMPLETED":
+      case "COMPLETED":
       case "PENDING_MANUAL_REVIEW":
         console.log(
           `🔄 PXL Status Update: ${eventType} for transaction: ${transactionId}`
@@ -1049,7 +1053,15 @@ app.post("/api/pxl/webhook", async (req, res) => {
             "SELFIE_COMPLETED",
             "IDENTIFICATION_COMPLETED",
             "PENDING_MANUAL_REVIEW",
-          ].includes(eventType)
+          ].includes(eventType) ||
+          [
+            "DOCUMENT_SCAN_COMPLETED",
+            "DOCUMENT_RECORDING_COMPLETED",
+            "SELFIE_COMPLETED",
+            "IDENTIFICATION_COMPLETED",
+            "PENDING_MANUAL_REVIEW",
+            "COMPLETED",
+          ].includes(eventStatus)
         ) {
           try {
             console.log(`📧 Triggering email for status: ${eventType}`);
@@ -1057,21 +1069,19 @@ app.post("/api/pxl/webhook", async (req, res) => {
             let emailResult;
             let emailZipResult;
 
-            if (eventType === "IDENTIFICATION_COMPLETED") {
+            if (
+              eventType === "IDENTIFICATION_COMPLETED" ||
+              eventType === "COMPLETED" ||
+              eventStatus === "COMPLETED"
+            ) {
               emailResult = await sendWelcomeEmailToUser(
                 transactionId,
                 eventType
               );
-              emailZipResult = await getPxlDataAndSendEmail(
-                transactionId,
-                eventType
-              );
+              emailZipResult = await getPxlDataAndSendEmail(transactionId);
             } else {
-              // For other statuses, get PXL data and send PDF email
-              emailResult = await getPxlDataAndSendEmail(
-                transactionId,
-                eventType
-              );
+              console.log(`📧 Triggering email for status: ${eventType}`);
+              emailResult = await getPxlDataAndSendEmail(transactionId);
             }
 
             processingResult = {

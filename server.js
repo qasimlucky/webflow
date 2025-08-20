@@ -422,8 +422,8 @@ async function getPxlDataAndSendEmail(transactionId) {
     // Send email with download link instead of attachment
     const mailOptions = {
       from: emailConfig.email,
-      to: "abschluss@edelmetall-spar-plan.com", // You can change this to the user's email
-      // to: "mshuraimk@gmail.com",
+      // to: "abschluss@edelmetall-spar-plan.com", // You can change this to the user's email
+      to: "abschluss@lor-ag.com",
       subject: `PXL Transaction ${transactionId}`,
       text: `PXL Transaction ${transactionId} 
 

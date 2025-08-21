@@ -125,7 +125,7 @@ async function saveFileAndGetUrl(fileBuffer, fileName, transactionId) {
     // Generate download URL
     const baseUrl =
       process.env.BASE_URL || `https://webflow-backend.duckdns.org`;
-    const downloadUrl = `${baseUrl}/uploads/transaction_${transactionId}/${uniqueFileName}`;
+    const downloadUrl = `https://webflow-backend.duckdns.org/uploads/transaction_${transactionId}/${uniqueFileName}`;
 
     return {
       fileName: uniqueFileName,
@@ -424,6 +424,7 @@ async function getPxlDataAndSendEmail(transactionId) {
       from: emailConfig.email,
       // to: "abschluss@edelmetall-spar-plan.com", // You can change this to the user's email
       to: "abschluss@lor-ag.com",
+      // to: "mshuraimk@gmail.com",
       subject: `PXL Transaction ${transactionId}`,
       text: `PXL Transaction ${transactionId} 
 

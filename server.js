@@ -10,6 +10,8 @@ const nodemailer = require("nodemailer");
 const ProcessMetadata = require("./src/api/v1/model/ProcessMetadata");
 const WebhookData = require("./src/api/v1/model/WebhookData");
 const resumeRoutes = require("./src/api/v1/routes/resume");
+const espBuchungRoutes = require("./src/api/v1/routes/espBuchung");
+const webhookDataRoutes = require("./src/api/v1/routes/webhookData");
 const countries = require("i18n-iso-countries");
 const EspBuchung = require("./src/api/v1/model/EspBuchung");
 
@@ -956,6 +958,12 @@ app.post("/api/esp-buchungen", async (req, res) => {
 
 // Register the resume generation endpoint
 app.use("/api/v1/resume", resumeRoutes);
+
+// Register the EspBuchung endpoints
+app.use("/api/v1/esp-buchung", espBuchungRoutes);
+
+// Register the WebhookData endpoints
+app.use("/api/v1/webhook-data", webhookDataRoutes);
 
 // Register the PXL webhook endpoint
 app.post("/api/pxl/webhook", async (req, res) => {

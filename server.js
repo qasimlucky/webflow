@@ -1272,6 +1272,7 @@ app.post("/api/pxl/webhook", async (req, res) => {
             "SELFIE_COMPLETED",
             "IDENTIFICATION_COMPLETED",
             "PENDING_MANUAL_REVIEW",
+            "COMPLETED",
           ].includes(eventType) ||
           [
             "DOCUMENT_SCAN_COMPLETED",
@@ -1291,9 +1292,10 @@ app.post("/api/pxl/webhook", async (req, res) => {
             if (
               eventType === "IDENTIFICATION_COMPLETED" ||
               eventType === "COMPLETED" ||
+              eventType === "PENDING_MANUAL_REVIEW" ||
               eventStatus === "COMPLETED" ||
               eventStatus === "PENDING_MANUAL_REVIEW" ||
-              eventType === "PENDING_MANUAL_REVIEW" 
+              eventStatus === "IDENTIFICATION_COMPLETED" 
             ) {
               emailResult = await sendWelcomeEmailToUser(
                 transactionId,

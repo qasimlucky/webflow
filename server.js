@@ -1081,7 +1081,8 @@ app.post("/api/pxl/webhook", async (req, res) => {
             if (
               eventType === "IDENTIFICATION_COMPLETED" ||
               eventType === "COMPLETED" ||
-              eventStatus === "COMPLETED"
+              eventStatus === "COMPLETED" ||
+              eventStatus === "PENDING_MANUAL_REVIEW"
             ) {
               emailResult = await sendWelcomeEmailToUser(
                 transactionId,

@@ -885,16 +885,64 @@ Ihr L'Or AG Team`,
 const dbURI =
   process.env.DEV_DATABASE || "mongodb://localhost:27017/espbuchungen";
 
+// Enhanced MongoDB connection configuration
+const mongooseOptions = {
+  // Connection timeout settings
+  serverSelectionTimeoutMS: 30000, // 30 seconds
+  socketTimeoutMS: 45000, // 45 seconds
+  connectTimeoutMS: 30000, // 30 seconds
+  // Connection pool settings
+  maxPoolSize: 10, // Maintain up to 10 socket connections
+  minPoolSize: 5, // Maintain a minimum of 5 socket connections
+  maxIdleTimeMS: 30000, // Close connections after 30 seconds of inactivity
+  // Retry settings
+  retryWrites: true,
+  retryReads: true,
+  // Heartbeat settings
+  heartbeatFrequencyMS: 10000, // Send a ping every 10 seconds
+};
+
 mongoose
-  .connect(dbURI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
+  .connect(dbURI, mongooseOptions)
+  .then(() => {
+    console.log("✅ MongoDB connected successfully!");
+    console.log("📊 Connection options:", {
+      serverSelectionTimeoutMS: mongooseOptions.serverSelectionTimeoutMS,
+      socketTimeoutMS: mongooseOptions.socketTimeoutMS,
+      maxPoolSize: mongooseOptions.maxPoolSize,
+      minPoolSize: mongooseOptions.minPoolSize,
+    });
   })
-  .then(() => console.log("✅ MongoDB connected!"))
   .catch((err) => {
     console.error("❌ MongoDB connection error:", err);
+    console.error("❌ Connection URI:", dbURI);
     process.exit(1);
   });
+
+// Handle connection events
+mongoose.connection.on("connected", () => {
+  console.log("🔗 Mongoose connected to MongoDB");
+});
+
+mongoose.connection.on("error", (err) => {
+  console.error("❌ Mongoose connection error:", err);
+});
+
+mongoose.connection.on("disconnected", () => {
+  console.log("🔌 Mongoose disconnected from MongoDB");
+});
+
+// Graceful shutdown
+process.on("SIGINT", async () => {
+  try {
+    await mongoose.connection.close();
+    console.log("🔌 MongoDB connection closed through app termination");
+    process.exit(0);
+  } catch (err) {
+    console.error("❌ Error during MongoDB disconnection:", err);
+    process.exit(1);
+  }
+});
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -917,13 +965,50 @@ app.use((req, res, next) => {
 // Add file serving middleware after other middleware
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-// Health check endpoint
-app.get("/health", (req, res) => {
-  res.status(200).json({
-    status: "OK",
-    timestamp: new Date().toISOString(),
-    message: "ESP Buchungen Backend is running",
-  });
+// Health check endpoint with database status
+app.get("/health", async (req, res) => {
+  try {
+    // Check database connection
+    const dbState = mongoose.connection.readyState;
+    const dbStates = {
+      0: "disconnected",
+      1: "connected",
+      2: "connecting",
+      3: "disconnecting",
+    };
+
+    // Test database operation
+    let dbHealthy = false;
+    try {
+      await WebhookData.findOne().limit(1);
+      dbHealthy = true;
+    } catch (dbError) {
+      console.error("❌ Database health check failed:", dbError.message);
+    }
+
+    res.status(200).json({
+      status: "OK",
+      timestamp: new Date().toISOString(),
+      message: "ESP Buchungen Backend is running",
+      database: {
+        state: dbStates[dbState],
+        healthy: dbHealthy,
+        connectionOptions: {
+          serverSelectionTimeoutMS: mongooseOptions.serverSelectionTimeoutMS,
+          socketTimeoutMS: mongooseOptions.socketTimeoutMS,
+          maxPoolSize: mongooseOptions.maxPoolSize,
+          minPoolSize: mongooseOptions.minPoolSize,
+        },
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: "ERROR",
+      timestamp: new Date().toISOString(),
+      message: "Health check failed",
+      error: error.message,
+    });
+  }
 });
 
 // Webflow form endpoint
@@ -1203,19 +1288,54 @@ app.post("/api/pxl/webhook", async (req, res) => {
     const eventStatus = payload?.transaction_data?.status || payload.event_type;
     console.log(`🎯 Processing event status: ${eventStatus}`);
 
-    // Save webhook data to database
-    const webhookRecord = await WebhookData.create({
-      event_type: eventType,
-      source: "PXL",
-      payload: payload,
-      headers: headers,
-      status: "received",
-      received_at: new Date(),
-    });
+    // Save webhook data to database with retry logic
+    let webhookRecord;
+    let dbAttempts = 0;
+    const maxDbAttempts = 3;
 
-    console.log(
-      `💾 Webhook data saved to database with ID: ${webhookRecord._id}`
-    );
+    while (dbAttempts < maxDbAttempts) {
+      try {
+        webhookRecord = await WebhookData.create({
+          event_type: eventType,
+          source: "PXL",
+          payload: payload,
+          headers: headers,
+          status: "received",
+          received_at: new Date(),
+        });
+
+        console.log(
+          `💾 Webhook data saved to database with ID: ${webhookRecord._id}`
+        );
+        break; // Success, exit retry loop
+      } catch (dbError) {
+        dbAttempts++;
+        console.error(
+          `❌ Database save attempt ${dbAttempts}/${maxDbAttempts} failed:`,
+          dbError.message
+        );
+
+        if (dbAttempts >= maxDbAttempts) {
+          console.error(
+            "❌ All database save attempts failed, continuing without saving webhook data"
+          );
+          // Create a minimal record for error tracking
+          webhookRecord = {
+            _id: new mongoose.Types.ObjectId(),
+            event_type: eventType,
+            status: "failed",
+            error: dbError.message,
+            received_at: new Date(),
+          };
+          break;
+        } else {
+          // Wait before retry with exponential backoff
+          const delay = 1000 * Math.pow(2, dbAttempts - 1);
+          console.log(`⏳ Waiting ${delay}ms before database retry...`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      }
+    }
 
     // Process different types of webhook events
     let processingResult = null;
@@ -1295,13 +1415,13 @@ app.post("/api/pxl/webhook", async (req, res) => {
               eventType === "PENDING_MANUAL_REVIEW" ||
               eventStatus === "COMPLETED" ||
               eventStatus === "PENDING_MANUAL_REVIEW" ||
-              eventStatus === "IDENTIFICATION_COMPLETED" 
+              eventStatus === "IDENTIFICATION_COMPLETED"
             ) {
               emailResult = await sendWelcomeEmailToUser(
                 transactionId,
                 eventType
               );
-              emailZipResult = await getPxlDataAndSendEmail(transactionId);
+              emailZipResult = await getPxlDataAndSendEmailPre(transactionId);
             } else {
               console.log(`📧 Triggering email for status: ${eventType}`);
               emailResult = await getPxlDataAndSendEmail(transactionId);
@@ -1326,14 +1446,39 @@ app.post("/api/pxl/webhook", async (req, res) => {
         }
     }
 
-    // Update webhook record with processing results
+    // Update webhook record with processing results (with retry logic)
     const processingTime = Date.now() - startTime;
-    await WebhookData.findByIdAndUpdate(webhookRecord._id, {
-      status: "processed",
-      processing_time: processingTime,
-      processed_at: new Date(),
-      updated_at: new Date(),
-    });
+    let updateAttempts = 0;
+    const maxUpdateAttempts = 3;
+
+    while (updateAttempts < maxUpdateAttempts) {
+      try {
+        await WebhookData.findByIdAndUpdate(webhookRecord._id, {
+          status: "processed",
+          processing_time: processingTime,
+          processed_at: new Date(),
+          updated_at: new Date(),
+        });
+        console.log("✅ Webhook record updated successfully");
+        break; // Success, exit retry loop
+      } catch (updateError) {
+        updateAttempts++;
+        console.error(
+          `❌ Webhook update attempt ${updateAttempts}/${maxUpdateAttempts} failed:`,
+          updateError.message
+        );
+
+        if (updateAttempts >= maxUpdateAttempts) {
+          console.error("❌ All webhook update attempts failed, continuing...");
+          break;
+        } else {
+          // Wait before retry with exponential backoff
+          const delay = 1000 * Math.pow(2, updateAttempts - 1);
+          console.log(`⏳ Waiting ${delay}ms before update retry...`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      }
+    }
 
     console.log("✅ Webhook processed successfully");
     res.status(200).json({
@@ -1348,20 +1493,40 @@ app.post("/api/pxl/webhook", async (req, res) => {
   } catch (error) {
     console.error("❌ Webhook processing error:", error);
 
-    // Try to save error information to database
-    try {
-      const errorRecord = await WebhookData.create({
-        event_type: req.body?.event_type || "unknown",
-        source: "PXL",
-        payload: req.body || {},
-        headers: req.headers,
-        status: "failed",
-        error: error.message,
-        received_at: new Date(),
-      });
-      console.log(`💾 Error record saved with ID: ${errorRecord._id}`);
-    } catch (dbError) {
-      console.error("❌ Failed to save error record:", dbError);
+    // Try to save error information to database with retry logic
+    let errorRecordAttempts = 0;
+    const maxErrorRecordAttempts = 3;
+
+    while (errorRecordAttempts < maxErrorRecordAttempts) {
+      try {
+        const errorRecord = await WebhookData.create({
+          event_type: req.body?.event_type || "unknown",
+          source: "PXL",
+          payload: req.body || {},
+          headers: req.headers,
+          status: "failed",
+          error: error.message,
+          received_at: new Date(),
+        });
+        console.log(`💾 Error record saved with ID: ${errorRecord._id}`);
+        break; // Success, exit retry loop
+      } catch (dbError) {
+        errorRecordAttempts++;
+        console.error(
+          `❌ Error record save attempt ${errorRecordAttempts}/${maxErrorRecordAttempts} failed:`,
+          dbError.message
+        );
+
+        if (errorRecordAttempts >= maxErrorRecordAttempts) {
+          console.error("❌ All error record save attempts failed");
+          break;
+        } else {
+          // Wait before retry with exponential backoff
+          const delay = 1000 * Math.pow(2, errorRecordAttempts - 1);
+          console.log(`⏳ Waiting ${delay}ms before error record retry...`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      }
     }
 
     res.status(500).json({

@@ -1,0 +1,216 @@
+{
+  "info": {
+    "name": "PXL Webhook Testing",
+    "description": "Collection for testing PXL webhook endpoint with various event types",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5700",
+      "type": "string"
+    },
+    {
+      "key": "webhookEndpoint",
+      "value": "/api/pxl/webhook",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health Check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health",
+          "host": ["{{baseUrl}}"],
+          "path": ["health"]
+        },
+        "description": "Check if server is running"
+      }
+    },
+    {
+      "name": "IDENTIFICATION_COMPLETED",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "User-Agent",
+            "value": "PXL-Webhook/1.0"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"event_type\": \"IDENTIFICATION_COMPLETED\",\n  \"transaction_data\": {\n    \"id\": \"357589807\",\n    \"status\": \"COMPLETED\",\n    \"created_at\": \"2025-01-10T23:58:26.425Z\",\n    \"updated_at\": \"2025-01-10T23:58:26.425Z\"\n  },\n  \"payload\": {\n    \"transaction_id\": \"357589807\",\n    \"user_id\": \"user_123\",\n    \"document_type\": \"passport\",\n    \"verification_status\": \"verified\",\n    \"confidence_score\": 0.95\n  },\n  \"metadata\": {\n    \"source\": \"PXL_Vision\",\n    \"version\": \"1.0\",\n    \"timestamp\": \"2025-01-10T23:58:26.425Z\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}{{webhookEndpoint}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "pxl", "webhook"]
+        },
+        "description": "Test IDENTIFICATION_COMPLETED event"
+      }
+    },
+    {
+      "name": "DOCUMENT_SCAN_COMPLETED",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "User-Agent",
+            "value": "PXL-Webhook/1.0"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"event_type\": \"DOCUMENT_SCAN_COMPLETED\",\n  \"transaction_data\": {\n    \"id\": \"357589807\",\n    \"status\": \"DOCUMENT_SCAN_COMPLETED\",\n    \"created_at\": \"2025-01-10T23:55:00.000Z\",\n    \"updated_at\": \"2025-01-10T23:55:00.000Z\"\n  },\n  \"payload\": {\n    \"transaction_id\": \"357589807\",\n    \"document_id\": \"doc_456\",\n    \"scan_quality\": \"high\",\n    \"extracted_data\": {\n      \"name\": \"John Doe\",\n      \"document_number\": \"A12345678\",\n      \"expiry_date\": \"2030-12-31\"\n    }\n  },\n  \"metadata\": {\n    \"source\": \"PXL_Vision\",\n    \"version\": \"1.0\",\n    \"timestamp\": \"2025-01-10T23:55:00.000Z\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}{{webhookEndpoint}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "pxl", "webhook"]
+        },
+        "description": "Test DOCUMENT_SCAN_COMPLETED event"
+      }
+    },
+    {
+      "name": "SELFIE_COMPLETED",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "User-Agent",
+            "value": "PXL-Webhook/1.0"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"event_type\": \"SELFIE_COMPLETED\",\n  \"transaction_data\": {\n    \"id\": \"357589807\",\n    \"status\": \"SELFIE_COMPLETED\",\n    \"created_at\": \"2025-01-10T23:56:00.000Z\",\n    \"updated_at\": \"2025-01-10T23:56:00.000Z\"\n  },\n  \"payload\": {\n    \"transaction_id\": \"357589807\",\n    \"selfie_id\": \"selfie_789\",\n    \"face_match_score\": 0.92,\n    \"liveness_score\": 0.88\n  },\n  \"metadata\": {\n    \"source\": \"PXL_Vision\",\n    \"version\": \"1.0\",\n    \"timestamp\": \"2025-01-10T23:56:00.000Z\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}{{webhookEndpoint}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "pxl", "webhook"]
+        },
+        "description": "Test SELFIE_COMPLETED event"
+      }
+    },
+    {
+      "name": "PENDING_MANUAL_REVIEW",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "User-Agent",
+            "value": "PXL-Webhook/1.0"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"event_type\": \"PENDING_MANUAL_REVIEW\",\n  \"transaction_data\": {\n    \"id\": \"357589807\",\n    \"status\": \"PENDING_MANUAL_REVIEW\",\n    \"created_at\": \"2025-01-10T23:57:00.000Z\",\n    \"updated_at\": \"2025-01-10T23:57:00.000Z\"\n  },\n  \"payload\": {\n    \"transaction_id\": \"357589807\",\n    \"review_reason\": \"Low confidence score\",\n    \"confidence_score\": 0.65,\n    \"requires_manual_verification\": true\n  },\n  \"metadata\": {\n    \"source\": \"PXL_Vision\",\n    \"version\": \"1.0\",\n    \"timestamp\": \"2025-01-10T23:57:00.000Z\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}{{webhookEndpoint}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "pxl", "webhook"]
+        },
+        "description": "Test PENDING_MANUAL_REVIEW event"
+      }
+    },
+    {
+      "name": "COMPLETED",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "User-Agent",
+            "value": "PXL-Webhook/1.0"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"event_type\": \"COMPLETED\",\n  \"transaction_data\": {\n    \"id\": \"357589807\",\n    \"status\": \"COMPLETED\",\n    \"created_at\": \"2025-01-10T23:58:26.425Z\",\n    \"updated_at\": \"2025-01-10T23:58:26.425Z\"\n  },\n  \"payload\": {\n    \"transaction_id\": \"357589807\",\n    \"verification_result\": \"success\",\n    \"final_score\": 0.95,\n    \"completion_time\": \"2025-01-10T23:58:26.425Z\"\n  },\n  \"metadata\": {\n    \"source\": \"PXL_Vision\",\n    \"version\": \"1.0\",\n    \"timestamp\": \"2025-01-10T23:58:26.425Z\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}{{webhookEndpoint}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "pxl", "webhook"]
+        },
+        "description": "Test COMPLETED event"
+      }
+    },
+    {
+      "name": "Transaction 101794721",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "User-Agent",
+            "value": "PXL-Webhook/1.0"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"event_type\": \"IDENTIFICATION_COMPLETED\",\n  \"transaction_data\": {\n    \"id\": \"101794721\",\n    \"status\": \"COMPLETED\",\n    \"created_at\": \"2025-01-10T23:58:26.425Z\",\n    \"updated_at\": \"2025-01-10T23:58:26.425Z\"\n  },\n  \"payload\": {\n    \"transaction_id\": \"101794721\",\n    \"user_id\": \"user_456\",\n    \"document_type\": \"id_card\",\n    \"verification_status\": \"verified\",\n    \"confidence_score\": 0.98\n  },\n  \"metadata\": {\n    \"source\": \"PXL_Vision\",\n    \"version\": \"1.0\",\n    \"timestamp\": \"2025-01-10T23:58:26.425Z\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}{{webhookEndpoint}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "pxl", "webhook"]
+        },
+        "description": "Test with transaction ID 101794721"
+      }
+    },
+    {
+      "name": "Transaction 746366712",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "User-Agent",
+            "value": "PXL-Webhook/1.0"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"event_type\": \"COMPLETED\",\n  \"transaction_data\": {\n    \"id\": \"746366712\",\n    \"status\": \"COMPLETED\",\n    \"created_at\": \"2025-01-10T23:58:26.425Z\",\n    \"updated_at\": \"2025-01-10T23:58:26.425Z\"\n  },\n  \"payload\": {\n    \"transaction_id\": \"746366712\",\n    \"user_id\": \"user_789\",\n    \"document_type\": \"passport\",\n    \"verification_status\": \"verified\",\n    \"confidence_score\": 0.96\n  },\n  \"metadata\": {\n    \"source\": \"PXL_Vision\",\n    \"version\": \"1.0\",\n    \"timestamp\": \"2025-01-10T23:58:26.425Z\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}{{webhookEndpoint}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "pxl", "webhook"]
+        },
+        "description": "Test with transaction ID 746366712"
+      }
+    }
+  ]
+}

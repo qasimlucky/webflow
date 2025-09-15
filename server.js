@@ -9,6 +9,7 @@ const axios = require("axios");
 const nodemailer = require("nodemailer");
 const ProcessMetadata = require("./src/api/v1/model/ProcessMetadata");
 const WebhookData = require("./src/api/v1/model/WebhookData");
+const EmailLog = require("./src/api/v1/model/EmailLog");
 const resumeRoutes = require("./src/api/v1/routes/resume");
 const espBuchungRoutes = require("./src/api/v1/routes/espBuchung");
 const webhookDataRoutes = require("./src/api/v1/routes/webhookData");
@@ -90,6 +91,140 @@ const emailTransporter = nodemailer.createTransport({
     rejectUnauthorized: false,
   },
 });
+
+// Email logging utility functions
+async function createEmailLog(emailData) {
+  try {
+    const emailLog = await EmailLog.create({
+      emailType: emailData.emailType,
+      transactionId: emailData.transactionId,
+      espBuchungId: emailData.espBuchungId,
+      recipientEmail: emailData.recipientEmail,
+      recipientName: emailData.recipientName,
+      senderEmail: emailData.senderEmail,
+      senderName: emailData.senderName,
+      subject: emailData.subject,
+      hasAttachment: emailData.hasAttachment || false,
+      attachmentDetails: emailData.attachmentDetails,
+      emailService: emailData.emailService || "nodemailer",
+      smtpConfig: emailData.smtpConfig,
+      status: "pending",
+      metadata: emailData.metadata,
+      userAgent: emailData.userAgent,
+      ipAddress: emailData.ipAddress,
+    });
+
+    console.log(`📧 Email log created with ID: ${emailLog._id}`);
+    return emailLog;
+  } catch (error) {
+    console.error("❌ Error creating email log:", error.message);
+    return null;
+  }
+}
+
+async function updateEmailLogStatus(emailLogId, status, additionalData = {}) {
+  try {
+    const updateData = {
+      status,
+      ...additionalData,
+    };
+
+    if (status === "sent") {
+      updateData.sentAt = new Date();
+    } else if (status === "delivered") {
+      updateData.deliveredAt = new Date();
+    } else if (status === "opened") {
+      updateData.openedAt = new Date();
+    } else if (status === "failed") {
+      updateData.retryCount = (updateData.retryCount || 0) + 1;
+    }
+
+    const updatedLog = await EmailLog.findByIdAndUpdate(
+      emailLogId,
+      updateData,
+      { new: true }
+    );
+
+    console.log(`📧 Email log ${emailLogId} updated to status: ${status}`);
+    return updatedLog;
+  } catch (error) {
+    console.error("❌ Error updating email log:", error.message);
+    return null;
+  }
+}
+
+// Enhanced email sending function with logging
+async function sendEmailWithLogging(mailOptions, emailLogData) {
+  const startTime = Date.now();
+  let emailLog = null;
+
+  try {
+    // Create email log entry
+    emailLog = await createEmailLog({
+      ...emailLogData,
+      recipientEmail: mailOptions.to,
+      senderEmail: mailOptions.from,
+      subject: mailOptions.subject,
+      hasAttachment: !!(
+        mailOptions.attachments && mailOptions.attachments.length > 0
+      ),
+      attachmentDetails: mailOptions.attachments
+        ? {
+            fileName: mailOptions.attachments[0].filename,
+            fileSize: mailOptions.attachments[0].content
+              ? mailOptions.attachments[0].content.length
+              : 0,
+            fileType: mailOptions.attachments[0].contentType || "unknown",
+          }
+        : undefined,
+      smtpConfig: {
+        host: emailConfig.smtpHost,
+        port: emailConfig.smtpPort,
+        secure: emailConfig.smtpSecure,
+      },
+    });
+
+    if (!emailLog) {
+      throw new Error("Failed to create email log");
+    }
+
+    // Send email
+    const emailResult = await emailTransporter.sendMail(mailOptions);
+
+    // Update email log with success
+    await updateEmailLogStatus(emailLog._id, "sent", {
+      emailId: emailResult.messageId,
+      processingTime: Date.now() - startTime,
+    });
+
+    console.log("✅ Email sent successfully!");
+    console.log("📧 Message ID:", emailResult.messageId);
+    console.log("📊 Processing time:", Date.now() - startTime, "ms");
+
+    return {
+      success: true,
+      emailId: emailResult.messageId,
+      emailLogId: emailLog._id,
+      processingTime: Date.now() - startTime,
+    };
+  } catch (error) {
+    console.error("❌ Error sending email:", error.message);
+
+    // Update email log with error
+    if (emailLog) {
+      await updateEmailLogStatus(emailLog._id, "failed", {
+        error: error.message,
+        errorCode: error.code,
+        errorDetails: error.response
+          ? JSON.stringify(error.response)
+          : undefined,
+        processingTime: Date.now() - startTime,
+      });
+    }
+
+    throw error;
+  }
+}
 
 // Create uploads directory if it doesn't exist
 const uploadsDir = path.join(__dirname, "uploads");
@@ -562,17 +697,37 @@ Please download the file using the link above.`,
       downloadUrl: fileInfo.downloadUrl,
     });
 
-    const emailResult = await emailTransporter.sendMail(mailOptions);
-
-    console.log("✅ Email sent successfully!");
-    // console.log("Message ID:", emailResult.messageId);
-    // console.log("📧 Email sent to:", mailOptions.to);
+    // Send email with logging
+    const emailResult = await sendEmailWithLogging(mailOptions, {
+      emailType: "pxl_file_attachment",
+      transactionId: transactionId,
+      espBuchungId: userData ? userData.espBuchungId : null,
+      recipientEmail: mailOptions.to,
+      senderEmail: mailOptions.from,
+      subject: mailOptions.subject,
+      attachmentDetails: {
+        fileName: fileInfo.fileName,
+        fileSize: fileInfo.fileSize,
+        fileType: fileExtension,
+        downloadUrl: fileInfo.downloadUrl,
+      },
+      metadata: {
+        fileInfo: fileInfo,
+        userData: userData
+          ? {
+              name: userData.name,
+              email: userData.email,
+              address: userData.address,
+            }
+          : null,
+      },
+    });
 
     return {
       success: true,
-      emailId: emailResult.messageId,
+      emailId: emailResult.emailId,
+      emailLogId: emailResult.emailLogId,
       transactionId: transactionId,
-      // status: status,
       fileInfo: fileInfo,
     };
   } catch (error) {
@@ -774,14 +929,30 @@ This is a status update notification from the PXL Vision system.`,
     };
 
     console.log("📧 Sending email notification...");
-    const emailResult = await emailTransporter.sendMail(mailOptions);
 
-    console.log("✅ Email sent successfully!");
-    console.log("📧 Email sent to:", mailOptions.to);
+    // Send email with logging
+    const emailResult = await sendEmailWithLogging(mailOptions, {
+      emailType: "pxl_status_update",
+      transactionId: transactionId,
+      espBuchungId: userData ? userData.espBuchungId : null,
+      recipientEmail: mailOptions.to,
+      senderEmail: mailOptions.from,
+      subject: mailOptions.subject,
+      metadata: {
+        userData: userData
+          ? {
+              name: userData.name,
+              email: userData.email,
+              address: userData.address,
+            }
+          : null,
+      },
+    });
 
     return {
       success: true,
-      emailId: emailResult.messageId,
+      emailId: emailResult.emailId,
+      emailLogId: emailResult.emailLogId,
       transactionId: transactionId,
       message: "Status update email sent successfully",
     };
@@ -863,14 +1034,25 @@ Ihr L'Or AG Team`,
     };
 
     console.log("📧 Sending welcome email...");
-    const emailResult = await emailTransporter.sendMail(mailOptions);
 
-    console.log("✅ Welcome email sent successfully!");
-    console.log("Message ID:", emailResult.messageId);
+    // Send email with logging
+    const emailResult = await sendEmailWithLogging(mailOptions, {
+      emailType: "welcome_user",
+      transactionId: transactionId,
+      espBuchungId: processMeta.espBuchungId,
+      recipientEmail: userEmail,
+      senderEmail: mailOptions.from,
+      subject: mailOptions.subject,
+      metadata: {
+        status: status,
+        espBuchungId: processMeta.espBuchungId,
+      },
+    });
 
     return {
       success: true,
-      emailId: emailResult.messageId,
+      emailId: emailResult.emailId,
+      emailLogId: emailResult.emailLogId,
       userEmail: userEmail,
       transactionId: transactionId,
       status: status,
@@ -1609,6 +1791,267 @@ app.get("/api/pxl/webhook/:id", async (req, res) => {
   }
 });
 
+// Email log management endpoints
+app.get("/api/email-logs", async (req, res) => {
+  try {
+    const {
+      limit = 50,
+      page = 1,
+      status,
+      emailType,
+      transactionId,
+      recipientEmail,
+      startDate,
+      endDate,
+    } = req.query;
+
+    // Build query
+    const query = {};
+    if (status) query.status = status;
+    if (emailType) query.emailType = emailType;
+    if (transactionId) query.transactionId = transactionId;
+    if (recipientEmail)
+      query.recipientEmail = { $regex: recipientEmail, $options: "i" };
+
+    // Date range filter
+    if (startDate || endDate) {
+      query.queuedAt = {};
+      if (startDate) query.queuedAt.$gte = new Date(startDate);
+      if (endDate) query.queuedAt.$lte = new Date(endDate);
+    }
+
+    // Pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    // Get email logs
+    const emailLogs = await EmailLog.find(query)
+      .populate(
+        "espBuchungId",
+        "ESP_Kontakt_Vorname ESP_Kontakt_Nachname ESP_Kontakt_EMailAdresse"
+      )
+      .sort({ queuedAt: -1 })
+      .limit(parseInt(limit))
+      .skip(skip);
+
+    // Get total count
+    const total = await EmailLog.countDocuments(query);
+
+    // Get statistics
+    const stats = await EmailLog.getEmailStats(startDate, endDate);
+
+    console.log(`📊 Retrieved ${emailLogs.length} email log records`);
+
+    res.status(200).json({
+      success: true,
+      data: emailLogs,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / parseInt(limit)),
+      },
+      statistics: stats,
+    });
+  } catch (error) {
+    console.error("❌ Error retrieving email logs:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to retrieve email logs",
+      error: error.message,
+    });
+  }
+});
+
+// Get specific email log by ID
+app.get("/api/email-logs/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const emailLog = await EmailLog.findById(id).populate(
+      "espBuchungId",
+      "ESP_Kontakt_Vorname ESP_Kontakt_Nachname ESP_Kontakt_EMailAdresse ESP_IBAN ESP_monatliche_Rate"
+    );
+
+    if (!emailLog) {
+      return res.status(404).json({
+        success: false,
+        message: "Email log not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: emailLog,
+    });
+  } catch (error) {
+    console.error("❌ Error retrieving email log:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to retrieve email log",
+      error: error.message,
+    });
+  }
+});
+
+// Get email logs for a specific transaction
+app.get("/api/email-logs/transaction/:transactionId", async (req, res) => {
+  try {
+    const { transactionId } = req.params;
+    const { limit = 20 } = req.query;
+
+    const emailLogs = await EmailLog.find({ transactionId })
+      .populate(
+        "espBuchungId",
+        "ESP_Kontakt_Vorname ESP_Kontakt_Nachname ESP_Kontakt_EMailAdresse"
+      )
+      .sort({ queuedAt: -1 })
+      .limit(parseInt(limit));
+
+    res.status(200).json({
+      success: true,
+      transactionId,
+      data: emailLogs,
+      count: emailLogs.length,
+    });
+  } catch (error) {
+    console.error("❌ Error retrieving email logs for transaction:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to retrieve email logs for transaction",
+      error: error.message,
+    });
+  }
+});
+
+// Retry failed emails
+app.post("/api/email-logs/:id/retry", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const emailLog = await EmailLog.findById(id);
+    if (!emailLog) {
+      return res.status(404).json({
+        success: false,
+        message: "Email log not found",
+      });
+    }
+
+    if (emailLog.status !== "failed") {
+      return res.status(400).json({
+        success: false,
+        message: "Only failed emails can be retried",
+      });
+    }
+
+    if (emailLog.retryCount >= 3) {
+      return res.status(400).json({
+        success: false,
+        message: "Maximum retry attempts reached",
+      });
+    }
+
+    // Update retry count and reset status
+    await EmailLog.findByIdAndUpdate(id, {
+      status: "pending",
+      lastRetryAt: new Date(),
+      error: undefined,
+      errorCode: undefined,
+      errorDetails: undefined,
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "Email queued for retry",
+    });
+  } catch (error) {
+    console.error("❌ Error retrying email:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to retry email",
+      error: error.message,
+    });
+  }
+});
+
+// Get email statistics dashboard
+app.get("/api/email-logs/stats/dashboard", async (req, res) => {
+  try {
+    const { days = 7 } = req.query;
+    const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    // Get overall statistics
+    const totalEmails = await EmailLog.countDocuments({
+      queuedAt: { $gte: startDate },
+    });
+    const sentEmails = await EmailLog.countDocuments({
+      status: "sent",
+      queuedAt: { $gte: startDate },
+    });
+    const failedEmails = await EmailLog.countDocuments({
+      status: "failed",
+      queuedAt: { $gte: startDate },
+    });
+    const pendingEmails = await EmailLog.countDocuments({
+      status: "pending",
+      queuedAt: { $gte: startDate },
+    });
+
+    // Get statistics by email type
+    const statsByType = await EmailLog.aggregate([
+      { $match: { queuedAt: { $gte: startDate } } },
+      {
+        $group: {
+          _id: { emailType: "$emailType", status: "$status" },
+          count: { $sum: 1 },
+          avgProcessingTime: { $avg: "$processingTime" },
+        },
+      },
+      { $sort: { "_id.emailType": 1, "_id.status": 1 } },
+    ]);
+
+    // Get daily statistics
+    const dailyStats = await EmailLog.aggregate([
+      { $match: { queuedAt: { $gte: startDate } } },
+      {
+        $group: {
+          _id: {
+            year: { $year: "$queuedAt" },
+            month: { $month: "$queuedAt" },
+            day: { $dayOfMonth: "$queuedAt" },
+          },
+          total: { $sum: 1 },
+          sent: { $sum: { $cond: [{ $eq: ["$status", "sent"] }, 1, 0] } },
+          failed: { $sum: { $cond: [{ $eq: ["$status", "failed"] }, 1, 0] } },
+          pending: { $sum: { $cond: [{ $eq: ["$status", "pending"] }, 1, 0] } },
+        },
+      },
+      { $sort: { "_id.year": 1, "_id.month": 1, "_id.day": 1 } },
+    ]);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        period: `${days} days`,
+        totalEmails,
+        sentEmails,
+        failedEmails,
+        pendingEmails,
+        successRate:
+          totalEmails > 0 ? ((sentEmails / totalEmails) * 100).toFixed(2) : 0,
+        statsByType,
+        dailyStats,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error retrieving email statistics:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to retrieve email statistics",
+      error: error.message,
+    });
+  }
+});
+
 // Add file management endpoints
 app.get("/api/files/:transactionId", async (req, res) => {
   try {
@@ -1714,6 +2157,13 @@ app.use("*", (req, res) => {
       "GET /health",
       "POST /api/esp-buchungen",
       "POST /test-webflow",
+      "GET /api/email-logs",
+      "GET /api/email-logs/:id",
+      "GET /api/email-logs/transaction/:transactionId",
+      "POST /api/email-logs/:id/retry",
+      "GET /api/email-logs/stats/dashboard",
+      "GET /api/pxl/webhook",
+      "GET /api/pxl/webhook/:id",
     ],
   });
 });

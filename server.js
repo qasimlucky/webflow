@@ -209,6 +209,34 @@ async function sendEmailWithLogging(mailOptions, emailLogData) {
     };
   } catch (error) {
     console.error("❌ Error sending email:", error.message);
+    console.error("❌ Email error details:", error);
+    console.error("❌ Email error stack:", error.stack);
+    
+    // Log detailed error information
+    const errorInfo = {
+      errorType: error.name || "UnknownError",
+      errorMessage: error.message,
+      errorCode: error.code,
+      errorResponse: error.response ? JSON.stringify(error.response) : undefined,
+      smtpConfig: {
+        host: emailConfig.smtpHost,
+        port: emailConfig.smtpPort,
+        secure: emailConfig.smtpSecure,
+      },
+      mailOptions: {
+        from: mailOptions.from,
+        to: mailOptions.to,
+        subject: mailOptions.subject,
+        hasText: !!mailOptions.text,
+        hasHtml: !!mailOptions.html,
+        hasAttachments: !!(mailOptions.attachments && mailOptions.attachments.length > 0)
+      },
+      processingTime: Date.now() - startTime,
+      timestamp: new Date().toISOString(),
+      errorStack: error.stack
+    };
+    
+    console.error("📋 SendEmailWithLogging Failure Details:", JSON.stringify(errorInfo, null, 2));
 
     // Update email log with error
     if (emailLog) {
@@ -219,6 +247,7 @@ async function sendEmailWithLogging(mailOptions, emailLogData) {
           ? JSON.stringify(error.response)
           : undefined,
         processingTime: Date.now() - startTime,
+        errorInfo: errorInfo,
       });
     }
 
@@ -966,6 +995,7 @@ This is a status update notification from the PXL Vision system.`,
 async function sendWelcomeEmailToUser(transactionId, status) {
   try {
     console.log(`📧 Sending welcome email for transaction: ${transactionId}`);
+    console.log(`🔍 Searching for ProcessMetadata with transactionCode: ${transactionId}`);
 
     // 1. Find ProcessMetadata using transactionCode (transactionId from webhook)
     const processMeta = await ProcessMetadata.findOne({
@@ -973,28 +1003,36 @@ async function sendWelcomeEmailToUser(transactionId, status) {
     });
 
     if (!processMeta) {
+      console.error(`❌ No ProcessMetadata found for transactionCode: ${transactionId}`);
+      console.log(`🔍 Available ProcessMetadata records:`, await ProcessMetadata.find({}).select('transactionCode'));
       throw new Error(
         `No ProcessMetadata found for transactionCode: ${transactionId}`
       );
     }
 
     console.log("✅ Found ProcessMetadata:", processMeta._id);
+    console.log(`🔍 ProcessMetadata espBuchungId: ${processMeta.espBuchungId}`);
 
     // 2. Get EspBuchung data using espBuchungId
     const espBuchung = await EspBuchung.findById(processMeta.espBuchungId);
 
     if (!espBuchung) {
+      console.error(`❌ No EspBuchung found for ID: ${processMeta.espBuchungId}`);
+      console.log(`🔍 Available EspBuchung records:`, await EspBuchung.find({}).select('_id ESP_Kontakt_EMailAdresse'));
       throw new Error(
         `No EspBuchung found for ID: ${processMeta.espBuchungId}`
       );
     }
 
     console.log("✅ Found EspBuchung:", espBuchung._id);
+    console.log(`🔍 EspBuchung email field: ${espBuchung.ESP_Kontakt_EMailAdresse}`);
 
     // 3. Extract user email
     const userEmail = espBuchung.ESP_Kontakt_EMailAdresse;
 
     if (!userEmail) {
+      console.error("❌ No email address found in EspBuchung data");
+      console.log("🔍 EspBuchung data:", espBuchung);
       throw new Error("No email address found in EspBuchung data");
     }
 
@@ -1034,6 +1072,13 @@ Ihr L'Or AG Team`,
     };
 
     console.log("📧 Sending welcome email...");
+    console.log("📧 Email config:", {
+      from: mailOptions.from,
+      to: mailOptions.to,
+      subject: mailOptions.subject,
+      hasText: !!mailOptions.text,
+      hasHtml: !!mailOptions.html
+    });
 
     // Send email with logging
     const emailResult = await sendEmailWithLogging(mailOptions, {
@@ -1048,6 +1093,8 @@ Ihr L'Or AG Team`,
         espBuchungId: processMeta.espBuchungId,
       },
     });
+    
+    console.log("📧 Email sending completed with result:", emailResult);
 
     return {
       success: true,
@@ -1060,6 +1107,22 @@ Ihr L'Or AG Team`,
     };
   } catch (error) {
     console.error("❌ Error in sendWelcomeEmailToUser:", error.message);
+    console.error("❌ SendWelcomeEmailToUser error details:", error);
+    console.error("❌ SendWelcomeEmailToUser error stack:", error.stack);
+    
+    // Log detailed error information
+    const errorInfo = {
+      transactionId: transactionId,
+      status: status,
+      errorType: error.name || "UnknownError",
+      errorMessage: error.message,
+      errorCode: error.code,
+      timestamp: new Date().toISOString(),
+      errorStack: error.stack,
+      functionName: "sendWelcomeEmailToUser"
+    };
+    
+    console.error("📋 SendWelcomeEmailToUser Failure Details:", JSON.stringify(errorInfo, null, 2));
     throw error;
   }
 }
@@ -1529,26 +1592,90 @@ app.post("/api/pxl/webhook", async (req, res) => {
       // Send welcome email for completion statuses
       if (["COMPLETED", "IDENTIFICATION_COMPLETED", "PENDING_MANUAL_REVIEW"].includes(status)) {
         console.log(`📧 Triggering welcome email for status: ${status}`);
-        const emailResult = await sendWelcomeEmailToUser(transactionId, status);
-        const emailZipResult = await getPxlDataAndSendEmailPre(transactionId);
-        processingResult = {
-          type: "pxl_status",
-          action: "processed_with_welcome_email",
-          emailResult: emailResult,
-          emailZipResult: emailZipResult,
-        };
-        console.log("✅ Welcome email sent successfully");
+        console.log(`🔍 Transaction ID: ${transactionId}`);
+        
+        try {
+          const emailResult = await sendWelcomeEmailToUser(transactionId, status);
+          console.log("✅ Welcome email result:", emailResult);
+          
+          const emailZipResult = await getPxlDataAndSendEmailPre(transactionId);
+          console.log("✅ Zip email result:", emailZipResult);
+          
+          processingResult = {
+            type: "pxl_status",
+            action: "processed_with_welcome_email",
+            emailResult: emailResult,
+            emailZipResult: emailZipResult,
+          };
+          console.log("✅ Welcome email sent successfully");
+        } catch (welcomeEmailError) {
+          console.error("❌ Welcome email failed:", welcomeEmailError.message);
+          console.error("❌ Welcome email error details:", welcomeEmailError);
+          console.error("❌ Welcome email error stack:", welcomeEmailError.stack);
+          
+          // Log detailed error information
+          const errorInfo = {
+            transactionId: transactionId,
+            status: status,
+            errorType: welcomeEmailError.name || "UnknownError",
+            errorMessage: welcomeEmailError.message,
+            errorCode: welcomeEmailError.code,
+            timestamp: new Date().toISOString(),
+            errorStack: welcomeEmailError.stack
+          };
+          
+          console.error("📋 Email Failure Details:", JSON.stringify(errorInfo, null, 2));
+          
+          processingResult = {
+            type: "pxl_status",
+            action: "welcome_email_failed",
+            error: welcomeEmailError.message,
+            errorDetails: welcomeEmailError.stack,
+            errorInfo: errorInfo,
+          };
+        }
       }
       // Send regular email for other important statuses
       else if (["DOCUMENT_SCAN_COMPLETED", "DOCUMENT_RECORDING_COMPLETED", "SELFIE_COMPLETED"].includes(status)) {
         console.log(`📧 Triggering email for status: ${status}`);
-        const emailResult = await getPxlDataAndSendEmail(transactionId);
-        processingResult = {
-          type: "pxl_status",
-          action: "processed_with_email",
-          emailResult: emailResult,
-        };
-        console.log("✅ Email sent successfully");
+        console.log(`🔍 Transaction ID: ${transactionId}`);
+        
+        try {
+          const emailResult = await getPxlDataAndSendEmail(transactionId);
+          console.log("✅ Regular email result:", emailResult);
+          
+          processingResult = {
+            type: "pxl_status",
+            action: "processed_with_email",
+            emailResult: emailResult,
+          };
+          console.log("✅ Email sent successfully");
+        } catch (regularEmailError) {
+          console.error("❌ Regular email failed:", regularEmailError.message);
+          console.error("❌ Regular email error details:", regularEmailError);
+          console.error("❌ Regular email error stack:", regularEmailError.stack);
+          
+          // Log detailed error information
+          const errorInfo = {
+            transactionId: transactionId,
+            status: status,
+            errorType: regularEmailError.name || "UnknownError",
+            errorMessage: regularEmailError.message,
+            errorCode: regularEmailError.code,
+            timestamp: new Date().toISOString(),
+            errorStack: regularEmailError.stack
+          };
+          
+          console.error("📋 Email Failure Details:", JSON.stringify(errorInfo, null, 2));
+          
+          processingResult = {
+            type: "pxl_status",
+            action: "regular_email_failed",
+            error: regularEmailError.message,
+            errorDetails: regularEmailError.stack,
+            errorInfo: errorInfo,
+          };
+        }
       }
       // Just process for other statuses
       else {
@@ -1556,10 +1683,28 @@ app.post("/api/pxl/webhook", async (req, res) => {
       }
     } catch (emailError) {
       console.error("❌ Failed to send email:", emailError.message);
+      console.error("❌ Email error details:", emailError);
+      console.error("❌ Email error stack:", emailError.stack);
+      
+      // Log detailed error information
+      const errorInfo = {
+        transactionId: transactionId,
+        status: status,
+        errorType: emailError.name || "UnknownError",
+        errorMessage: emailError.message,
+        errorCode: emailError.code,
+        timestamp: new Date().toISOString(),
+        errorStack: emailError.stack
+      };
+      
+      console.error("📋 General Email Failure Details:", JSON.stringify(errorInfo, null, 2));
+      
       processingResult = {
         type: "pxl_status",
         action: "processed_without_email",
         error: emailError.message,
+        errorDetails: emailError.stack,
+        errorInfo: errorInfo,
       };
     }
 

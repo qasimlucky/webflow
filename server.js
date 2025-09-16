@@ -1463,12 +1463,12 @@ app.post("/api/pxl/webhook", async (req, res) => {
       });
     }
 
-    // Extract event type from payload
-    const eventType =
-      payload.event_type || payload.type || payload.event || "unknown";
-    console.log(`🎯 Processing event type: ${eventType}`);
-    const eventStatus = payload?.transaction_data?.status || payload.event_type;
-    console.log(`🎯 Processing event status: ${eventStatus}`);
+    // Extract status and transaction ID from payload
+    const status = payload.status;
+    const transactionId = payload.id;
+    
+    console.log(`🎯 Processing status: ${status}`);
+    console.log(`🎯 Processing transaction ID: ${transactionId}`);
 
     // Save webhook data to database with retry logic
     let webhookRecord;
@@ -1478,7 +1478,7 @@ app.post("/api/pxl/webhook", async (req, res) => {
     while (dbAttempts < maxDbAttempts) {
       try {
         webhookRecord = await WebhookData.create({
-          event_type: eventType,
+          event_type: "unknown",
           source: "PXL",
           payload: payload,
           headers: headers,
@@ -1504,7 +1504,7 @@ app.post("/api/pxl/webhook", async (req, res) => {
           // Create a minimal record for error tracking
           webhookRecord = {
             _id: new mongoose.Types.ObjectId(),
-            event_type: eventType,
+            event_type: "unknown",
             status: "failed",
             error: dbError.message,
             received_at: new Date(),
@@ -1522,110 +1522,45 @@ app.post("/api/pxl/webhook", async (req, res) => {
     // Process different types of webhook events
     let processingResult = null;
 
-    // Extract transaction ID from payload
-    console.log("payload<><><><><><><>", payload);
-    const transactionId = payload?.transaction_data?.id;
-    // const status = payload.status ;
-
-    switch (eventType || eventStatus) {
-      case "document_created":
-      case "document_updated":
-        console.log(
-          "📄 Document event received:",
-          payload.document_id || payload.id
-        );
-        processingResult = { type: "document", action: "processed" };
-        break;
-
-      case "payment_success":
-        console.log("💳 Payment success:", payload.payment_id || payload.id);
-        processingResult = { type: "payment", action: "processed" };
-        break;
-
-      case "user_registered":
-        console.log("👤 User registered:", payload.user_id || payload.id);
-        processingResult = { type: "user", action: "processed" };
-        break;
-
-      case "transaction_completed":
-        console.log("✅ Transaction completed:", transactionId);
-        processingResult = { type: "transaction", action: "processed" };
-        break;
-
-      // Handle PXL specific statuses
-      case "ACTIVE":
-      case "STARTED":
-      case "TC_ACCEPTED":
-      case "COMPATIBILITY_PASSED":
-      case "DOCUMENT_SCAN_COMPLETED":
-      case "DOCUMENT_RECORDING_COMPLETED":
-      case "SELFIE_COMPLETED":
-      case "IDENTIFICATION_COMPLETED":
-      case "COMPLETED":
-      case "PENDING_MANUAL_REVIEW":
-        console.log(
-          `🔄 PXL Status Update: ${eventType} for transaction: ${transactionId}`
-        );
-        // For specific statuses, get data and send email
-        if (
-          [
-            "DOCUMENT_SCAN_COMPLETED",
-            "DOCUMENT_RECORDING_COMPLETED",
-            "SELFIE_COMPLETED",
-            "IDENTIFICATION_COMPLETED",
-            "PENDING_MANUAL_REVIEW",
-            "COMPLETED",
-          ].includes(eventType) ||
-          [
-            "DOCUMENT_SCAN_COMPLETED",
-            "DOCUMENT_RECORDING_COMPLETED",
-            "SELFIE_COMPLETED",
-            "IDENTIFICATION_COMPLETED",
-            "PENDING_MANUAL_REVIEW",
-            "COMPLETED",
-          ].includes(eventStatus)
-        ) {
-          try {
-            console.log(`📧 Triggering email for status: ${eventType}`);
-
-            let emailResult;
-            let emailZipResult;
-
-            if (
-              eventType === "IDENTIFICATION_COMPLETED" ||
-              eventType === "COMPLETED" ||
-              eventType === "PENDING_MANUAL_REVIEW" ||
-              eventStatus === "COMPLETED" ||
-              eventStatus === "PENDING_MANUAL_REVIEW" ||
-              eventStatus === "IDENTIFICATION_COMPLETED"
-            ) {
-              emailResult = await sendWelcomeEmailToUser(
-                transactionId,
-                eventType
-              );
-              emailZipResult = await getPxlDataAndSendEmailPre(transactionId);
-            } else {
-              console.log(`📧 Triggering email for status: ${eventType}`);
-              emailResult = await getPxlDataAndSendEmail(transactionId);
-            }
-
-            processingResult = {
-              type: "pxl_status",
-              action: "processed_with_email",
-              emailResult: emailResult,
-            };
-            console.log("✅ Email sent successfully");
-          } catch (emailError) {
-            console.error("❌ Failed to send email:", emailError.message);
-            processingResult = {
-              type: "pxl_status",
-              action: "processed_without_email",
-              error: emailError.message,
-            };
-          }
-        } else {
-          processingResult = { type: "pxl_status", action: "processed" };
-        }
+    // Process webhook based on status
+    console.log(`🔄 PXL Status Update: ${status} for transaction: ${transactionId}`);
+    
+    try {
+      // Send welcome email for completion statuses
+      if (["COMPLETED", "IDENTIFICATION_COMPLETED", "PENDING_MANUAL_REVIEW"].includes(status)) {
+        console.log(`📧 Triggering welcome email for status: ${status}`);
+        const emailResult = await sendWelcomeEmailToUser(transactionId, status);
+        const emailZipResult = await getPxlDataAndSendEmailPre(transactionId);
+        processingResult = {
+          type: "pxl_status",
+          action: "processed_with_welcome_email",
+          emailResult: emailResult,
+          emailZipResult: emailZipResult,
+        };
+        console.log("✅ Welcome email sent successfully");
+      }
+      // Send regular email for other important statuses
+      else if (["DOCUMENT_SCAN_COMPLETED", "DOCUMENT_RECORDING_COMPLETED", "SELFIE_COMPLETED"].includes(status)) {
+        console.log(`📧 Triggering email for status: ${status}`);
+        const emailResult = await getPxlDataAndSendEmail(transactionId);
+        processingResult = {
+          type: "pxl_status",
+          action: "processed_with_email",
+          emailResult: emailResult,
+        };
+        console.log("✅ Email sent successfully");
+      }
+      // Just process for other statuses
+      else {
+        processingResult = { type: "pxl_status", action: "processed" };
+      }
+    } catch (emailError) {
+      console.error("❌ Failed to send email:", emailError.message);
+      processingResult = {
+        type: "pxl_status",
+        action: "processed_without_email",
+        error: emailError.message,
+      };
     }
 
     // Update webhook record with processing results (with retry logic)
@@ -1667,7 +1602,8 @@ app.post("/api/pxl/webhook", async (req, res) => {
       success: true,
       message: "Webhook received and processed",
       webhook_id: webhookRecord._id,
-      event_type: eventType,
+      status: status,
+      transaction_id: transactionId,
       processing_time: processingTime,
       processing_result: processingResult,
       timestamp: new Date().toISOString(),

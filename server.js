@@ -211,13 +211,15 @@ async function sendEmailWithLogging(mailOptions, emailLogData) {
     console.error("❌ Error sending email:", error.message);
     console.error("❌ Email error details:", error);
     console.error("❌ Email error stack:", error.stack);
-    
+
     // Log detailed error information
     const errorInfo = {
       errorType: error.name || "UnknownError",
       errorMessage: error.message,
       errorCode: error.code,
-      errorResponse: error.response ? JSON.stringify(error.response) : undefined,
+      errorResponse: error.response
+        ? JSON.stringify(error.response)
+        : undefined,
       smtpConfig: {
         host: emailConfig.smtpHost,
         port: emailConfig.smtpPort,
@@ -229,14 +231,19 @@ async function sendEmailWithLogging(mailOptions, emailLogData) {
         subject: mailOptions.subject,
         hasText: !!mailOptions.text,
         hasHtml: !!mailOptions.html,
-        hasAttachments: !!(mailOptions.attachments && mailOptions.attachments.length > 0)
+        hasAttachments: !!(
+          mailOptions.attachments && mailOptions.attachments.length > 0
+        ),
       },
       processingTime: Date.now() - startTime,
       timestamp: new Date().toISOString(),
-      errorStack: error.stack
+      errorStack: error.stack,
     };
-    
-    console.error("📋 SendEmailWithLogging Failure Details:", JSON.stringify(errorInfo, null, 2));
+
+    console.error(
+      "📋 SendEmailWithLogging Failure Details:",
+      JSON.stringify(errorInfo, null, 2)
+    );
 
     // Update email log with error
     if (emailLog) {
@@ -995,7 +1002,9 @@ This is a status update notification from the PXL Vision system.`,
 async function sendWelcomeEmailToUser(transactionId, status) {
   try {
     console.log(`📧 Sending welcome email for transaction: ${transactionId}`);
-    console.log(`🔍 Searching for ProcessMetadata with transactionCode: ${transactionId}`);
+    console.log(
+      `🔍 Searching for ProcessMetadata with transactionCode: ${transactionId}`
+    );
 
     // 1. Find ProcessMetadata using transactionCode (transactionId from webhook)
     const processMeta = await ProcessMetadata.findOne({
@@ -1003,8 +1012,13 @@ async function sendWelcomeEmailToUser(transactionId, status) {
     });
 
     if (!processMeta) {
-      console.error(`❌ No ProcessMetadata found for transactionCode: ${transactionId}`);
-      console.log(`🔍 Available ProcessMetadata records:`, await ProcessMetadata.find({}).select('transactionCode'));
+      console.error(
+        `❌ No ProcessMetadata found for transactionCode: ${transactionId}`
+      );
+      console.log(
+        `🔍 Available ProcessMetadata records:`,
+        await ProcessMetadata.find({}).select("transactionCode")
+      );
       throw new Error(
         `No ProcessMetadata found for transactionCode: ${transactionId}`
       );
@@ -1017,15 +1031,22 @@ async function sendWelcomeEmailToUser(transactionId, status) {
     const espBuchung = await EspBuchung.findById(processMeta.espBuchungId);
 
     if (!espBuchung) {
-      console.error(`❌ No EspBuchung found for ID: ${processMeta.espBuchungId}`);
-      console.log(`🔍 Available EspBuchung records:`, await EspBuchung.find({}).select('_id ESP_Kontakt_EMailAdresse'));
+      console.error(
+        `❌ No EspBuchung found for ID: ${processMeta.espBuchungId}`
+      );
+      console.log(
+        `🔍 Available EspBuchung records:`,
+        await EspBuchung.find({}).select("_id ESP_Kontakt_EMailAdresse")
+      );
       throw new Error(
         `No EspBuchung found for ID: ${processMeta.espBuchungId}`
       );
     }
 
     console.log("✅ Found EspBuchung:", espBuchung._id);
-    console.log(`🔍 EspBuchung email field: ${espBuchung.ESP_Kontakt_EMailAdresse}`);
+    console.log(
+      `🔍 EspBuchung email field: ${espBuchung.ESP_Kontakt_EMailAdresse}`
+    );
 
     // 3. Extract user email
     const userEmail = espBuchung.ESP_Kontakt_EMailAdresse;
@@ -1077,7 +1098,7 @@ Ihr L'Or AG Team`,
       to: mailOptions.to,
       subject: mailOptions.subject,
       hasText: !!mailOptions.text,
-      hasHtml: !!mailOptions.html
+      hasHtml: !!mailOptions.html,
     });
 
     // Send email with logging
@@ -1093,7 +1114,7 @@ Ihr L'Or AG Team`,
         espBuchungId: processMeta.espBuchungId,
       },
     });
-    
+
     console.log("📧 Email sending completed with result:", emailResult);
 
     return {
@@ -1109,7 +1130,7 @@ Ihr L'Or AG Team`,
     console.error("❌ Error in sendWelcomeEmailToUser:", error.message);
     console.error("❌ SendWelcomeEmailToUser error details:", error);
     console.error("❌ SendWelcomeEmailToUser error stack:", error.stack);
-    
+
     // Log detailed error information
     const errorInfo = {
       transactionId: transactionId,
@@ -1119,10 +1140,13 @@ Ihr L'Or AG Team`,
       errorCode: error.code,
       timestamp: new Date().toISOString(),
       errorStack: error.stack,
-      functionName: "sendWelcomeEmailToUser"
+      functionName: "sendWelcomeEmailToUser",
     };
-    
-    console.error("📋 SendWelcomeEmailToUser Failure Details:", JSON.stringify(errorInfo, null, 2));
+
+    console.error(
+      "📋 SendWelcomeEmailToUser Failure Details:",
+      JSON.stringify(errorInfo, null, 2)
+    );
     throw error;
   }
 }
@@ -1529,7 +1553,7 @@ app.post("/api/pxl/webhook", async (req, res) => {
     // Extract status and transaction ID from payload
     const status = payload.status;
     const transactionId = payload.id;
-    
+
     console.log(`🎯 Processing status: ${status}`);
     console.log(`🎯 Processing transaction ID: ${transactionId}`);
 
@@ -1586,21 +1610,32 @@ app.post("/api/pxl/webhook", async (req, res) => {
     let processingResult = null;
 
     // Process webhook based on status
-    console.log(`🔄 PXL Status Update: ${status} for transaction: ${transactionId}`);
-    
+    console.log(
+      `🔄 PXL Status Update: ${status} for transaction: ${transactionId}`
+    );
+
     try {
       // Send welcome email for completion statuses
-      if (["COMPLETED", "IDENTIFICATION_COMPLETED", "PENDING_MANUAL_REVIEW"].includes(status)) {
+      if (
+        [
+          "COMPLETED",
+          "IDENTIFICATION_COMPLETED",
+          "PENDING_MANUAL_REVIEW",
+        ].includes(status)
+      ) {
         console.log(`📧 Triggering welcome email for status: ${status}`);
         console.log(`🔍 Transaction ID: ${transactionId}`);
-        
+
         try {
-          const emailResult = await sendWelcomeEmailToUser(transactionId, status);
+          const emailResult = await sendWelcomeEmailToUser(
+            transactionId,
+            status
+          );
           console.log("✅ Welcome email result:", emailResult);
-          
+
           const emailZipResult = await getPxlDataAndSendEmailPre(transactionId);
           console.log("✅ Zip email result:", emailZipResult);
-          
+
           processingResult = {
             type: "pxl_status",
             action: "processed_with_welcome_email",
@@ -1611,8 +1646,11 @@ app.post("/api/pxl/webhook", async (req, res) => {
         } catch (welcomeEmailError) {
           console.error("❌ Welcome email failed:", welcomeEmailError.message);
           console.error("❌ Welcome email error details:", welcomeEmailError);
-          console.error("❌ Welcome email error stack:", welcomeEmailError.stack);
-          
+          console.error(
+            "❌ Welcome email error stack:",
+            welcomeEmailError.stack
+          );
+
           // Log detailed error information
           const errorInfo = {
             transactionId: transactionId,
@@ -1621,11 +1659,14 @@ app.post("/api/pxl/webhook", async (req, res) => {
             errorMessage: welcomeEmailError.message,
             errorCode: welcomeEmailError.code,
             timestamp: new Date().toISOString(),
-            errorStack: welcomeEmailError.stack
+            errorStack: welcomeEmailError.stack,
           };
-          
-          console.error("📋 Email Failure Details:", JSON.stringify(errorInfo, null, 2));
-          
+
+          console.error(
+            "📋 Email Failure Details:",
+            JSON.stringify(errorInfo, null, 2)
+          );
+
           processingResult = {
             type: "pxl_status",
             action: "welcome_email_failed",
@@ -1636,14 +1677,20 @@ app.post("/api/pxl/webhook", async (req, res) => {
         }
       }
       // Send regular email for other important statuses
-      else if (["DOCUMENT_SCAN_COMPLETED", "DOCUMENT_RECORDING_COMPLETED", "SELFIE_COMPLETED"].includes(status)) {
+      else if (
+        [
+          "DOCUMENT_SCAN_COMPLETED",
+          "DOCUMENT_RECORDING_COMPLETED",
+          "SELFIE_COMPLETED",
+        ].includes(status)
+      ) {
         console.log(`📧 Triggering email for status: ${status}`);
         console.log(`🔍 Transaction ID: ${transactionId}`);
-        
+
         try {
           const emailResult = await getPxlDataAndSendEmail(transactionId);
           console.log("✅ Regular email result:", emailResult);
-          
+
           processingResult = {
             type: "pxl_status",
             action: "processed_with_email",
@@ -1653,8 +1700,11 @@ app.post("/api/pxl/webhook", async (req, res) => {
         } catch (regularEmailError) {
           console.error("❌ Regular email failed:", regularEmailError.message);
           console.error("❌ Regular email error details:", regularEmailError);
-          console.error("❌ Regular email error stack:", regularEmailError.stack);
-          
+          console.error(
+            "❌ Regular email error stack:",
+            regularEmailError.stack
+          );
+
           // Log detailed error information
           const errorInfo = {
             transactionId: transactionId,
@@ -1663,11 +1713,14 @@ app.post("/api/pxl/webhook", async (req, res) => {
             errorMessage: regularEmailError.message,
             errorCode: regularEmailError.code,
             timestamp: new Date().toISOString(),
-            errorStack: regularEmailError.stack
+            errorStack: regularEmailError.stack,
           };
-          
-          console.error("📋 Email Failure Details:", JSON.stringify(errorInfo, null, 2));
-          
+
+          console.error(
+            "📋 Email Failure Details:",
+            JSON.stringify(errorInfo, null, 2)
+          );
+
           processingResult = {
             type: "pxl_status",
             action: "regular_email_failed",
@@ -1685,7 +1738,7 @@ app.post("/api/pxl/webhook", async (req, res) => {
       console.error("❌ Failed to send email:", emailError.message);
       console.error("❌ Email error details:", emailError);
       console.error("❌ Email error stack:", emailError.stack);
-      
+
       // Log detailed error information
       const errorInfo = {
         transactionId: transactionId,
@@ -1694,11 +1747,14 @@ app.post("/api/pxl/webhook", async (req, res) => {
         errorMessage: emailError.message,
         errorCode: emailError.code,
         timestamp: new Date().toISOString(),
-        errorStack: emailError.stack
+        errorStack: emailError.stack,
       };
-      
-      console.error("📋 General Email Failure Details:", JSON.stringify(errorInfo, null, 2));
-      
+
+      console.error(
+        "📋 General Email Failure Details:",
+        JSON.stringify(errorInfo, null, 2)
+      );
+
       processingResult = {
         type: "pxl_status",
         action: "processed_without_email",
@@ -2229,6 +2285,421 @@ app.post("/test-webflow", (req, res) => {
   });
 });
 
+// ===== COMPLETE PXL ENCRYPTION API ENDPOINTS (MATCHING PYTHON CODE) =====
+
+// 1. Generate RSA Key Pairs (like Python's rsa.newkeys(2048))
+app.post("/api/v1/keys/generate", async (req, res) => {
+  try {
+    const crypto = require("crypto");
+
+    console.log("🔑 Generating RSA key pair (2048-bit)...");
+
+    // Generate 2048-bit RSA key pair
+    const { publicKey, privateKey } = crypto.generateKeyPairSync("rsa", {
+      modulusLength: 2048,
+      publicKeyEncoding: {
+        type: "spki",
+        format: "pem",
+      },
+      privateKeyEncoding: {
+        type: "pkcs1",
+        format: "pem",
+      },
+    });
+
+    console.log("✅ RSA key pair generated successfully");
+
+    res.status(200).json({
+      success: true,
+      publicKey: publicKey,
+      privateKey: privateKey,
+      keySize: 2048,
+      message: "RSA key pair generated successfully",
+    });
+  } catch (error) {
+    console.error("❌ Error generating RSA keys:", error.message);
+    res.status(500).json({
+      success: false,
+      message: "Failed to generate RSA keys",
+      error: error.message,
+    });
+  }
+});
+
+// 2. Get Access Token (like Python's /access/token with customer_token)
+app.post("/api/v1/access/token", async (req, res) => {
+  try {
+    const { customer_token } = req.body;
+
+    if (!customer_token) {
+      return res.status(400).json({
+        success: false,
+        message: "customer_token is required",
+      });
+    }
+
+    console.log("🔑 Getting access token with customer token...");
+
+    const url = `${process.env.PXL_API_URL}/access/token`;
+    const headers = {
+      Authorization: `Bearer ${customer_token}`,
+    };
+
+    const response = await axios.post(url, {}, { headers });
+
+    console.log("✅ Access token retrieved successfully");
+    res.status(200).json({
+      success: true,
+      accessToken: response.data.accessToken,
+    });
+  } catch (error) {
+    console.error(
+      "❌ Error getting access token:",
+      error.response?.data || error.message
+    );
+    res.status(500).json({
+      success: false,
+      message: "Failed to get access token",
+      error: error.response?.data || error.message,
+    });
+  }
+});
+
+// 3. Get Encryption Keys (like Python's /transactions/{id}/key)
+app.get("/api/v1/transactions/:transaction_code/key", async (req, res) => {
+  try {
+    const { transaction_code } = req.params;
+    const { access_token } = req.query;
+
+    console.log(
+      `🔑 Getting encryption keys for transaction: ${transaction_code}`
+    );
+
+    if (!access_token) {
+      return res.status(400).json({
+        success: false,
+        message: "access_token is required",
+      });
+    }
+
+    const url = `${process.env.PXL_API_URL}/transactions/${transaction_code}/key`;
+    const headers = { Authorization: `Bearer ${access_token}` };
+
+    console.log(" Requesting encryption keys from PXL...");
+    const response = await axios.get(url, { headers });
+
+    console.log("✅ Encryption keys retrieved successfully");
+    res.status(200).json({
+      success: true,
+      transactionKey: response.data.transactionKey,
+      dataInitializationVector: response.data.dataInitializationVector,
+      fileInitializationVector: response.data.fileInitializationVector,
+    });
+  } catch (error) {
+    console.error(
+      "❌ Error getting encryption keys:",
+      error.response?.data || error.message
+    );
+    res.status(500).json({
+      success: false,
+      message: "Failed to get encryption keys",
+      error: error.response?.data || error.message,
+    });
+  }
+});
+
+// 4. Get Decrypted Transaction Data (like Python's /transactions/{id}/data with full decryption)
+app.get("/api/v1/transactions/:transaction_code/data", async (req, res) => {
+  try {
+    const { transaction_code } = req.params;
+    const { access_token, private_key } = req.query;
+
+    console.log(` Getting decrypted transaction data for: ${transaction_code}`);
+
+    if (!access_token || !private_key) {
+      return res.status(400).json({
+        success: false,
+        message: "access_token and private_key are required",
+      });
+    }
+
+    const crypto = require("crypto");
+
+    const keyUrl = `${process.env.PXL_API_URL}/transactions/${transaction_code}/key`;
+    const headers = { Authorization: `Bearer ${access_token}` };
+
+    console.log("🔑 Getting encryption keys...");
+    const keyResponse = await axios.get(keyUrl, { headers });
+
+    const encTransactionKey = keyResponse.data.transactionKey;
+    const dataIV = keyResponse.data.dataInitializationVector;
+
+    const privateKeyBuffer = Buffer.from(private_key, "utf8");
+    const rsaKey = crypto.createPrivateKey(privateKeyBuffer);
+
+    console.log("🔓 Decrypting transaction key with RSA...");
+    const decryptedTransactionKey = crypto.privateDecrypt(
+      {
+        key: rsaKey,
+        padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
+      },
+      Buffer.from(encTransactionKey, "base64")
+    );
+
+    const dataUrl = `${process.env.PXL_API_URL}/transactions/${transaction_code}/data`;
+    console.log("📥 Getting encrypted transaction data...");
+    const dataResponse = await axios.get(dataUrl, { headers });
+
+    console.log("🔓 Decrypting data with AES...");
+    const decipher = crypto.createDecipheriv(
+      "aes-256-cbc",
+      decryptedTransactionKey,
+      Buffer.from(dataIV, "base64")
+    );
+    let decryptedData = decipher.update(
+      Buffer.from(dataResponse.data.result, "base64")
+    );
+    decryptedData = Buffer.concat([decryptedData, decipher.final()]);
+
+    const jsonData = JSON.parse(decryptedData.toString("utf8"));
+
+    console.log("✅ Transaction data decrypted successfully");
+    res.status(200).json({
+      success: true,
+      data: jsonData,
+      transactionCode: transaction_code,
+      decryptedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error(
+      "❌ Error getting decrypted transaction data:",
+      error.response?.data || error.message
+    );
+    res.status(500).json({
+      success: false,
+      message: "Failed to get decrypted transaction data",
+      error: error.response?.data || error.message,
+    });
+  }
+});
+
+// 5. Get Decrypted Transaction Files (like Python's /transactions/{id}/files with full decryption)
+app.get("/api/v1/transactions/:transaction_code/files", async (req, res) => {
+  try {
+    const { transaction_code } = req.params;
+    const { access_token, private_key } = req.query;
+
+    console.log(
+      `📁 Getting decrypted transaction files for: ${transaction_code}`
+    );
+
+    if (!access_token || !private_key) {
+      return res.status(400).json({
+        success: false,
+        message: "access_token and private_key are required",
+      });
+    }
+
+    const crypto = require("crypto");
+
+    const keyUrl = `${process.env.PXL_API_URL}/transactions/${transaction_code}/key`;
+    const headers = { Authorization: `Bearer ${access_token}` };
+
+    console.log("🔑 Getting encryption keys...");
+    const keyResponse = await axios.get(keyUrl, { headers });
+
+    const encTransactionKey = keyResponse.data.transactionKey;
+    const fileIV = keyResponse.data.fileInitializationVector;
+
+    const privateKeyBuffer = Buffer.from(private_key, "utf8");
+    const rsaKey = crypto.createPrivateKey(privateKeyBuffer);
+
+    console.log("🔓 Decrypting transaction key with RSA...");
+    const decryptedTransactionKey = crypto.privateDecrypt(
+      {
+        key: rsaKey,
+        padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
+      },
+      Buffer.from(encTransactionKey, "base64")
+    );
+
+    const filesUrl = `${process.env.PXL_API_URL}/transactions/${transaction_code}/files`;
+    console.log("📥 Getting encrypted transaction files...");
+    const filesResponse = await axios.get(filesUrl, {
+      headers,
+      responseType: "arraybuffer",
+    });
+
+    console.log("🔓 Decrypting files with AES...");
+    const decipher = crypto.createDecipheriv(
+      "aes-256-cbc",
+      decryptedTransactionKey,
+      Buffer.from(fileIV, "base64")
+    );
+    let decryptedFiles = decipher.update(filesResponse.data);
+    decryptedFiles = Buffer.concat([decryptedFiles, decipher.final()]);
+
+    console.log("✅ Transaction files decrypted successfully");
+
+    res.set({
+      "Content-Type": "application/zip",
+      "Content-Disposition": `attachment; filename="${transaction_code}_decrypted.zip"`,
+      "Content-Length": decryptedFiles.length,
+    });
+
+    res.status(200).send(decryptedFiles);
+  } catch (error) {
+    console.error(
+      "❌ Error getting decrypted transaction files:",
+      error.response?.data || error.message
+    );
+    res.status(500).json({
+      success: false,
+      message: "Failed to get decrypted transaction files",
+      error: error.response?.data || error.message,
+    });
+  }
+});
+
+// 6. Complete Transaction Processing (like Python's main run function)
+app.post("/api/v1/transactions/:transaction_code/process", async (req, res) => {
+  try {
+    const { transaction_code } = req.params;
+    const { customer_token, private_key, save_files = false } = req.body;
+
+    console.log(
+      ` Processing complete transaction flow for: ${transaction_code}`
+    );
+
+    if (!customer_token || !private_key) {
+      return res.status(400).json({
+        success: false,
+        message: "customer_token and private_key are required",
+      });
+    }
+
+    const crypto = require("crypto");
+    const fs = require("fs");
+    const path = require("path");
+
+    // 1. Get access token (like Python's session.post)
+    console.log("🔑 Step 1: Getting access token...");
+    const tokenUrl = `${process.env.PXL_API_URL}/access/token`;
+    const tokenResponse = await axios.post(
+      tokenUrl,
+      {},
+      {
+        headers: { Authorization: `Bearer ${customer_token}` },
+      }
+    );
+    const accessToken = tokenResponse.data.accessToken;
+
+    // 2. Get encryption keys (like Python's session.get key)
+    console.log(" Step 2: Getting encryption keys...");
+    const keyUrl = `${process.env.PXL_API_URL}/transactions/${transaction_code}/key`;
+    const keyResponse = await axios.get(keyUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    const encTransactionKey = keyResponse.data.transactionKey;
+    const dataIV = keyResponse.data.dataInitializationVector;
+    const fileIV = keyResponse.data.fileInitializationVector;
+
+    // 3. Decrypt transaction key (like Python's RSA decryption)
+    console.log("🔓 Step 3: Decrypting transaction key...");
+    const privateKeyBuffer = Buffer.from(private_key, "utf8");
+    const rsaKey = crypto.createPrivateKey(privateKeyBuffer);
+    const decryptedTransactionKey = crypto.privateDecrypt(
+      {
+        key: rsaKey,
+        padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
+      },
+      Buffer.from(encTransactionKey, "base64")
+    );
+
+    // 4. Get and decrypt data (like Python's data decryption)
+    console.log("📊 Step 4: Getting and decrypting transaction data...");
+    const dataUrl = `${process.env.PXL_API_URL}/transactions/${transaction_code}/data`;
+    const dataResponse = await axios.get(dataUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    const dataDecipher = crypto.createDecipheriv(
+      "aes-256-cbc",
+      decryptedTransactionKey,
+      Buffer.from(dataIV, "base64")
+    );
+    let decryptedData = dataDecipher.update(
+      Buffer.from(dataResponse.data.result, "base64")
+    );
+    decryptedData = Buffer.concat([decryptedData, dataDecipher.final()]);
+    const jsonData = JSON.parse(decryptedData.toString("utf8"));
+
+    // 5. Get and decrypt files (like Python's file decryption)
+    console.log("📁 Step 5: Getting and decrypting transaction files...");
+    const filesUrl = `${process.env.PXL_API_URL}/transactions/${transaction_code}/files`;
+    const filesResponse = await axios.get(filesUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      responseType: "arraybuffer",
+    });
+
+    const fileDecipher = crypto.createDecipheriv(
+      "aes-256-cbc",
+      decryptedTransactionKey,
+      Buffer.from(fileIV, "base64")
+    );
+    let decryptedFiles = fileDecipher.update(filesResponse.data);
+    decryptedFiles = Buffer.concat([decryptedFiles, fileDecipher.final()]);
+
+    let result = {
+      success: true,
+      transactionCode: transaction_code,
+      data: jsonData,
+      filesSize: decryptedFiles.length,
+      processedAt: new Date().toISOString(),
+    };
+
+    // 6. Save files if requested (like Python's file writing)
+    if (save_files) {
+      const uploadsDir = path.join(
+        __dirname,
+        "uploads",
+        `transaction_${transaction_code}`
+      );
+      if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+      }
+
+      const jsonPath = path.join(uploadsDir, `${transaction_code}.json`);
+      const zipPath = path.join(uploadsDir, `${transaction_code}.zip`);
+
+      fs.writeFileSync(jsonPath, JSON.stringify(jsonData, null, 2));
+      fs.writeFileSync(zipPath, decryptedFiles);
+
+      result.savedFiles = {
+        jsonPath: jsonPath,
+        zipPath: zipPath,
+        message: "Files saved successfully",
+      };
+
+      console.log(`💾 Files saved to: ${uploadsDir}`);
+    }
+
+    console.log("✅ Complete transaction processing successful");
+    res.status(200).json(result);
+  } catch (error) {
+    console.error(
+      "❌ Error in complete transaction processing:",
+      error.response?.data || error.message
+    );
+    res.status(500).json({
+      success: false,
+      message: "Failed to process transaction",
+      error: error.response?.data || error.message,
+    });
+  }
+});
+
 // Catch-all for undefined routes
 app.use("*", (req, res) => {
   res.status(404).json({
@@ -2245,6 +2716,12 @@ app.use("*", (req, res) => {
       "GET /api/email-logs/stats/dashboard",
       "GET /api/pxl/webhook",
       "GET /api/pxl/webhook/:id",
+      "POST /api/v1/keys/generate",
+      "POST /api/v1/access/token",
+      "GET /api/v1/transactions/:transaction_code/key?access_token=TOKEN",
+      "GET /api/v1/transactions/:transaction_code/data?access_token=TOKEN&private_key=PRIVATE_KEY",
+      "GET /api/v1/transactions/:transaction_code/files?access_token=TOKEN&private_key=PRIVATE_KEY",
+      "POST /api/v1/transactions/:transaction_code/process",
     ],
   });
 });

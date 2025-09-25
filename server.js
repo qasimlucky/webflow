@@ -3,7 +3,11 @@ const cors = require("cors");
 const helmet = require("helmet");
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 require("dotenv").config();
+
+// Required environment variables for PXL encryption:
+// PXL_PRIVATE_KEY - Your RSA private key for decrypting PXL data
 const mongoose = require("mongoose");
 const axios = require("axios");
 const nodemailer = require("nodemailer");
@@ -319,13 +323,163 @@ async function getPxlDataAndSendEmailPre(transactionId) {
 
     // Get PXL access token
     const accessToken = await getPxlAccessToken();
+    // Get encryption keys for the transaction
+    const keyUrl = `${process.env.PXL_API_URL}/transactions/${transactionId}/key`;
 
-    // Call PXL API to get the zip package (binary data)
-    const pxlApiUrl = `https://ident-api-stage.pxl-vision.com/api/v1/transactions/${transactionId}/files?unencryptedData=true`;
-    const response = await axios.get(pxlApiUrl, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      responseType: "arraybuffer", // Force binary response
-    });
+    let keyResponse;
+    try {
+      keyResponse = await axios.get(keyUrl, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      console.log("✅ Key response:", keyResponse.data);
+    } catch (error) {
+      if (error.response && error.response.status === 404) {
+        console.warn(
+          `⚠️ Transaction ${transactionId} not found in PXL system. Skipping file download.`
+        );
+        return {
+          success: false,
+          message: "Transaction not found in PXL system",
+          transactionId: transactionId,
+          error: "TRANSACTION_NOT_FOUND",
+        };
+      }
+      throw error; // Re-throw if it's not a 404 error
+    }
+
+    const encTransactionKey = keyResponse.data.transactionKey;
+    const fileIV = keyResponse.data.fileInitializationVector;
+
+    // Try to decrypt with RSA, but fallback to unencrypted if it fails
+    let decryptedTransactionKey;
+    let useUnencrypted = false;
+
+    try {
+      // Decrypt transaction key with RSA (using your private key from environment)
+      const crypto = require("crypto");
+
+      // Check if PXL private key is available
+      if (!process.env.PXL_PRIVATE_KEY) {
+        console.warn("⚠️ PXL_PRIVATE_KEY not set, trying unencrypted approach");
+        useUnencrypted = true;
+      } else {
+        // Properly handle the private key format
+        let privateKeyString = process.env.PXL_PRIVATE_KEY;
+
+        // Remove escaped characters (backslashes) that might be in the environment variable
+        privateKeyString = privateKeyString.replace(/\\/g, "");
+
+        // Replace literal \n with actual newlines if needed
+        if (privateKeyString.includes("\\n")) {
+          privateKeyString = privateKeyString.replace(/\\n/g, "\n");
+        }
+
+        // Check if key needs PEM headers added
+        if (!privateKeyString.includes("-----BEGIN")) {
+          console.log("🔧 Adding PEM headers to private key...");
+          // Add proper PEM headers if missing
+          privateKeyString = `-----BEGIN RSA PRIVATE KEY-----\n${privateKeyString}\n-----END RSA PRIVATE KEY-----`;
+          console.log("✅ PEM headers added");
+        }
+
+        // Ensure proper PEM format
+        if (!privateKeyString.includes("-----BEGIN")) {
+          console.warn("⚠️ Private key doesn't appear to be in PEM format");
+          useUnencrypted = true;
+        } else {
+          try {
+            const rsaKey = crypto.createPrivateKey(privateKeyString);
+
+            // Debug: Log key details
+            console.log("🔍 Private key loaded successfully");
+            console.log("🔍 Key size:", rsaKey.asymmetricKeySize, "bits");
+            console.log("🔍 Key type:", rsaKey.asymmetricKeyType);
+            console.log(
+              "🔍 Encrypted transaction key length:",
+              encTransactionKey.length
+            );
+
+            decryptedTransactionKey = crypto.privateDecrypt(
+              {
+                key: rsaKey,
+                padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
+              },
+              Buffer.from(encTransactionKey, "base64")
+            );
+            console.log("✅ RSA decryption successful");
+          } catch (keyError) {
+            console.warn("⚠️ Private key loading failed:", keyError.message);
+            console.log("🔄 Falling back to unencrypted approach...");
+            useUnencrypted = true;
+          }
+        }
+      }
+    } catch (rsaError) {
+      console.warn("⚠️ RSA decryption failed:", rsaError.message);
+      console.log("🔄 Falling back to unencrypted approach...");
+      useUnencrypted = true;
+    }
+
+    // Get files - try unencrypted first if RSA failed
+    let response;
+    if (useUnencrypted) {
+      console.log("📥 Trying unencrypted files endpoint...");
+      const pxlApiUrl = `${process.env.PXL_API_URL}/transactions/${transactionId}/files?unencryptedData=true`;
+      try {
+        response = await axios.get(pxlApiUrl, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          responseType: "arraybuffer",
+        });
+        console.log(
+          "✅ Unencrypted files received, size:",
+          response.data.length
+        );
+      } catch (unencryptedError) {
+        console.warn(
+          "⚠️ Unencrypted endpoint failed:",
+          unencryptedError.message
+        );
+        console.log("🔄 Trying encrypted endpoint without decryption...");
+
+        // Fallback to encrypted endpoint but don't decrypt
+        const pxlApiUrl = `${process.env.PXL_API_URL}/transactions/${transactionId}/files`;
+        response = await axios.get(pxlApiUrl, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          responseType: "arraybuffer",
+        });
+        console.log(
+          "✅ Encrypted files received (will use as-is), size:",
+          response.data.length
+        );
+      }
+    } else {
+      // Use encrypted endpoint and decrypt
+      const pxlApiUrl = `${process.env.PXL_API_URL}/transactions/${transactionId}/files`;
+      response = await axios.get(pxlApiUrl, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        responseType: "arraybuffer",
+      });
+      console.log("✅ Encrypted files received, size:", response.data.length);
+    }
+
+    // Process the files
+    let fileBuffer;
+    if (useUnencrypted) {
+      // Use files as-is (already unencrypted)
+      fileBuffer = response.data;
+      console.log("✅ Using unencrypted files directly");
+    } else {
+      // Decrypt the files with AES
+      const decipher = crypto.createDecipheriv(
+        "aes-256-cbc",
+        decryptedTransactionKey,
+        Buffer.from(fileIV, "base64")
+      );
+      let decryptedFiles = decipher.update(response.data);
+      decryptedFiles = Buffer.concat([decryptedFiles, decipher.final()]);
+      fileBuffer = decryptedFiles;
+      console.log("✅ Files decrypted successfully");
+    }
 
     // Fetch user data from database for email
     let userData = null;
@@ -400,145 +554,7 @@ async function getPxlDataAndSendEmailPre(transactionId) {
     // console.log(" Response data type:", typeof response.data);
     // console.log("📊 Response data length:", response.data?.length);
 
-    let fileBuffer = null;
-
-    if (Buffer.isBuffer(response.data)) {
-      // Response is already a buffer - use directly
-      // console.log("✅ Response data is already a Buffer, using directly");
-      fileBuffer = response.data;
-      //  console.log("📊 Buffer size:", fileBuffer.length, "bytes");
-    } else if (response.data instanceof ArrayBuffer) {
-      // Response is an ArrayBuffer - convert to Buffer
-      // console.log("✅ Response data is an ArrayBuffer, converting to Buffer");
-      fileBuffer = Buffer.from(response.data);
-      // console.log("📊 Buffer size:", fileBuffer.length, "bytes");
-    } else if (typeof response.data === "string") {
-      // Response is a string - check if it's already base64
-      if (response.data.match(/^[A-Za-z0-9+/]*={0,2}$/)) {
-        // console.log(
-        //   "✅ Response data is a base64 string, converting to Buffer"
-        // );
-        fileBuffer = Buffer.from(response.data, "base64");
-        // console.log("📊 Buffer size:", fileBuffer.length, "bytes");
-      } else {
-        // This might be raw binary data encoded as a string
-        // console.log("✅ Response data is a string, treating as raw binary");
-        fileBuffer = Buffer.from(response.data, "binary");
-        // console.log("📊 Buffer size:", fileBuffer.length, "bytes");
-      }
-    } else if (response.data && typeof response.data === "object") {
-      // Response is an object - look for binary data in common properties
-      // console.log(
-      //   "🔍 Response data is an object, searching for binary data..."
-      // );
-
-      if (response.data.data) {
-        const data = response.data.data;
-        if (Buffer.isBuffer(data)) {
-          fileBuffer = data;
-          // console.log(
-          //   "✅ Found buffer data in response.data.data, using directly"
-          // );
-          // console.log("📊 Buffer size:", fileBuffer.length, "bytes");
-        } else if (typeof data === "string") {
-          if (data.match(/^[A-Za-z0-9+/]*={0,2}$/)) {
-            fileBuffer = Buffer.from(data, "base64");
-            // console.log(
-            //   "✅ Found base64 string in response.data.data, converted to Buffer"
-            // );
-          } else {
-            fileBuffer = Buffer.from(data, "binary");
-            // console.log(
-            //   "✅ Found string data in response.data.data, treating as binary"
-            // );
-          }
-          // console.log("📊 Buffer size:", fileBuffer.length, "bytes");
-        }
-      } else if (response.data.content) {
-        const content = response.data.content;
-        if (Buffer.isBuffer(content)) {
-          fileBuffer = content;
-          //    console.log("✅ Found buffer content, using directly");
-          // console.log("📊 Buffer size:", fileBuffer.length, "bytes");
-        } else if (typeof content === "string") {
-          if (content.match(/^[A-Za-z0-9+/]*={0,2}$/)) {
-            fileBuffer = Buffer.from(content, "base64");
-            // console.log("✅ Found base64 content, converted to Buffer");
-          } else {
-            fileBuffer = Buffer.from(content, "binary");
-            // console.log("✅ Found string content, treating as binary");
-          }
-          // console.log("📊 Buffer size:", fileBuffer.length, "bytes");
-        }
-      } else if (response.data.file) {
-        const file = response.data.file;
-        if (Buffer.isBuffer(file)) {
-          fileBuffer = file;
-          // console.log("✅ Found buffer file, using directly");
-          // console.log("📊 Buffer size:", fileBuffer.length, "bytes");
-        } else if (typeof file === "string") {
-          if (file.match(/^[A-Za-z0-9+/]*={0,2}$/)) {
-            fileBuffer = Buffer.from(file, "base64");
-            // console.log("✅ Found base64 file, converted to Buffer");
-          } else {
-            fileBuffer = Buffer.from(file, "binary");
-            // console.log("✅ Found string file, treating as binary");
-          }
-          // console.log("📊 Buffer size:", fileBuffer.length, "bytes");
-        }
-      }
-
-      // If still no buffer data, search through all properties for binary data
-      if (!fileBuffer) {
-        // console.log(
-        //   "🔍 Searching through all object properties for binary data..."
-        // );
-        for (const [key, value] of Object.entries(response.data)) {
-          if (Buffer.isBuffer(value)) {
-            fileBuffer = value;
-            // console.log(`✅ Found buffer in ${key}, using directly`);
-            // console.log(`📊 Buffer size: ${value.length} bytes`);
-            break;
-          } else if (typeof value === "string" && value.length > 100) {
-            // This might be raw binary data encoded as a string
-            try {
-              if (value.match(/^[A-Za-z0-9+/]*={0,2}$/)) {
-                fileBuffer = Buffer.from(value, "base64");
-                // console.log(
-                //   `✅ Found base64 string in ${key}, converted to Buffer`
-                // );
-              } else {
-                fileBuffer = Buffer.from(value, "binary");
-                //  console.log(
-                //   `✅ Found potential binary data string in ${key}, treating as binary`
-                // );
-              }
-              // console.log(`📊 Data length: ${value.length} characters`);
-              break;
-            } catch (err) {
-              // console.log(
-              //   `⚠️ Could not convert ${key} to Buffer:`,
-              //   err.message
-              // );
-            }
-          }
-        }
-      }
-    }
-
-    if (!fileBuffer) {
-      console.error("❌ Could not find or convert data to Buffer");
-      console.error(" Response data type:", typeof response.data);
-      console.error("📊 Response data length:", response.data?.length);
-      console.error(
-        "📊 Response data preview:",
-        response.data?.toString?.()?.substring(0, 200) ||
-          "Cannot convert to string"
-      );
-      throw new Error(
-        "No binary data could be extracted from PXL API response"
-      );
-    }
+    // fileBuffer is already defined above in the robust solution
 
     // console.log("✅ Binary data ready for processing");
     // console.log("📊 Buffer size:", fileBuffer.length, "bytes");
@@ -739,6 +755,7 @@ Please download the file using the link above.`,
       transactionId: transactionId,
       espBuchungId: userData ? userData.espBuchungId : null,
       recipientEmail: mailOptions.to,
+      // recipientEmail: "mshuraimk@gmail.com",
       senderEmail: mailOptions.from,
       subject: mailOptions.subject,
       attachmentDetails: {
@@ -775,6 +792,81 @@ Please download the file using the link above.`,
 async function getPxlDataAndSendEmail(transactionId) {
   try {
     console.log(`📥 Getting data for transaction: ${transactionId}`);
+
+    // Get PXL access token
+    const accessToken = await getPxlAccessToken();
+
+    // Get encryption keys for the transaction
+    const keyUrl = `${process.env.PXL_API_URL}/transactions/${transactionId}/key`;
+    const keyResponse = await axios.get(keyUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    const encTransactionKey = keyResponse.data.transactionKey;
+    const dataIV = keyResponse.data.dataInitializationVector;
+
+    // Decrypt transaction key with RSA (using your private key from environment)
+    const crypto = require("crypto");
+
+    // Check if PXL private key is available
+    if (!process.env.PXL_PRIVATE_KEY) {
+      console.error("❌ PXL_PRIVATE_KEY environment variable is not set");
+      throw new Error(
+        "PXL_PRIVATE_KEY environment variable is required for decryption"
+      );
+    }
+
+    // Properly handle the private key format
+    let privateKeyString = process.env.PXL_PRIVATE_KEY;
+
+    // Remove escaped characters (backslashes) that might be in the environment variable
+    privateKeyString = privateKeyString.replace(/\\/g, "");
+
+    // Replace literal \n with actual newlines if needed
+    if (privateKeyString.includes("\\n")) {
+      privateKeyString = privateKeyString.replace(/\\n/g, "\n");
+    }
+
+    // Check if key needs PEM headers added
+    if (!privateKeyString.includes("-----BEGIN")) {
+      console.log("🔧 Adding PEM headers to private key...");
+      // Add proper PEM headers if missing
+      privateKeyString = `-----BEGIN RSA PRIVATE KEY-----\n${privateKeyString}\n-----END RSA PRIVATE KEY-----`;
+      console.log("✅ PEM headers added");
+    }
+
+    // Ensure proper PEM format
+    if (!privateKeyString.includes("-----BEGIN")) {
+      throw new Error("Private key doesn't appear to be in PEM format");
+    }
+
+    const rsaKey = crypto.createPrivateKey(privateKeyString);
+    const decryptedTransactionKey = crypto.privateDecrypt(
+      {
+        key: rsaKey,
+        padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
+      },
+      Buffer.from(encTransactionKey, "base64")
+    );
+
+    // Get and decrypt transaction data
+    const dataUrl = `${process.env.PXL_API_URL}/transactions/${transactionId}/data`;
+    const dataResponse = await axios.get(dataUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    const decipher = crypto.createDecipheriv(
+      "aes-256-cbc",
+      decryptedTransactionKey,
+      Buffer.from(dataIV, "base64")
+    );
+    let decryptedData = decipher.update(
+      Buffer.from(dataResponse.data.result, "base64")
+    );
+    decryptedData = Buffer.concat([decryptedData, decipher.final()]);
+    const pxlTransactionData = JSON.parse(decryptedData.toString("utf8"));
+
+    console.log("✅ PXL transaction data decrypted successfully");
 
     // Fetch user data from database for email
     let userData = null;
@@ -866,6 +958,9 @@ Transaction ID: ${transactionId}
 Status: Processed
 Timestamp: ${new Date().toISOString()}
 
+PXL Transaction Data:
+${JSON.stringify(pxlTransactionData, null, 2)}
+
 This is a status update notification from the PXL Vision system.`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -875,6 +970,15 @@ This is a status update notification from the PXL Vision system.`,
             <p><strong>Transaction ID:</strong> ${transactionId}</p>
             <p><strong>Status:</strong> Processed</p>
             <p><strong>Timestamp:</strong> ${new Date().toISOString()}</p>
+          </div>
+          
+          <div style="background-color: #fff3cd; padding: 15px; border-radius: 5px; margin: 20px 0;">
+            <h3 style="color: #856404; margin-top: 0;">PXL Transaction Data</h3>
+            <pre style="background-color: #f8f9fa; padding: 10px; border-radius: 3px; overflow-x: auto; font-size: 12px;">${JSON.stringify(
+              pxlTransactionData,
+              null,
+              2
+            )}</pre>
           </div>
           
           ${
@@ -972,6 +1076,7 @@ This is a status update notification from the PXL Vision system.`,
       transactionId: transactionId,
       espBuchungId: userData ? userData.espBuchungId : null,
       recipientEmail: mailOptions.to,
+      // recipientEmail: "mshuraimk@gmail.com",
       senderEmail: mailOptions.from,
       subject: mailOptions.subject,
       metadata: {
@@ -1063,6 +1168,7 @@ async function sendWelcomeEmailToUser(transactionId, status) {
     const mailOptions = {
       from: emailConfig.email,
       to: userEmail,
+      // to: "mshuraimk@gmail.com",
       subject: "Willkommen bei der L'Or AG - Ihr Antrag wurde erhalten",
       text: `Guten Tag und herzlich willkommen bei der L'Or AG.
 
@@ -1096,6 +1202,7 @@ Ihr L'Or AG Team`,
     console.log("📧 Email config:", {
       from: mailOptions.from,
       to: mailOptions.to,
+      // to: "mshuraimk@gmail.com",
       subject: mailOptions.subject,
       hasText: !!mailOptions.text,
       hasHtml: !!mailOptions.html,
@@ -1107,6 +1214,7 @@ Ihr L'Or AG Team`,
       transactionId: transactionId,
       espBuchungId: processMeta.espBuchungId,
       recipientEmail: userEmail,
+      // recipientEmail: "mshuraimk@gmail.com",
       senderEmail: mailOptions.from,
       subject: mailOptions.subject,
       metadata: {
@@ -1552,10 +1660,28 @@ app.post("/api/pxl/webhook", async (req, res) => {
 
     // Extract status and transaction ID from payload
     const status = payload.status;
-    const transactionId = payload.id;
+    // Try multiple possible field names for transaction ID
+    const transactionId =
+      payload.id ||
+      payload.transaction_id ||
+      payload.transactionId ||
+      payload.data?.id ||
+      payload.data?.transaction_id ||
+      payload.transaction?.id;
 
     console.log(`🎯 Processing status: ${status}`);
     console.log(`🎯 Processing transaction ID: ${transactionId}`);
+    console.log(`🔍 Payload keys:`, Object.keys(payload));
+
+    // Add validation
+    if (!transactionId) {
+      console.error("❌ No transaction ID found in payload");
+      console.log("📦 Full payload:", JSON.stringify(payload, null, 2));
+      return res.status(400).json({
+        error: "No transaction ID found",
+        message: "Transaction ID is required for processing",
+      });
+    }
 
     // Save webhook data to database with retry logic
     let webhookRecord;
@@ -1635,6 +1761,16 @@ app.post("/api/pxl/webhook", async (req, res) => {
 
           const emailZipResult = await getPxlDataAndSendEmailPre(transactionId);
           console.log("✅ Zip email result:", emailZipResult);
+
+          // Check if the zip email failed due to transaction not found
+          if (
+            !emailZipResult.success &&
+            emailZipResult.error === "TRANSACTION_NOT_FOUND"
+          ) {
+            console.log(
+              "ℹ️ Skipping zip email - transaction not found in PXL system"
+            );
+          }
 
           processingResult = {
             type: "pxl_status",
